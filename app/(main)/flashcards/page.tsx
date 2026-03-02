@@ -38,7 +38,7 @@ const cardColors = [
 ];
 
 const FlashcardsPage = () => {
-  const { notes } = useNotesContext();
+  const { noteIndexes, getNoteById } = useNotesContext();
   const [decks, setDecks] = useState<FlashcardDeck[]>(getStoredDecks);
   const [studyMode, setStudyMode] = useState<{ cards: FlashcardItem[]; title: string } | null>(null);
   const [editingDeckId, setEditingDeckId] = useState<string | null>(null);
@@ -55,23 +55,26 @@ const FlashcardsPage = () => {
 
   const notesWithFlashcards = useMemo(() => {
     const grouped: NoteWithFlashcards[] = [];
-    notes.forEach(note => {
+    noteIndexes.forEach(noteIndex => {
+      const fullNote = getNoteById(noteIndex.id);
+      if (!fullNote) return;
+
       const noteCards: FlashcardItem[] = [];
-      note.blocks.forEach(block => {
+      fullNote.blocks.forEach(block => {
         if (block.type === "flashcard" && block.flashcards) {
           noteCards.push(...block.flashcards);
         }
       });
       if (noteCards.length > 0) {
         grouped.push({
-          id: note.id,
-          title: note.title || "Untitled",
+          id: noteIndex.id,
+          title: noteIndex.title || "Untitled",
           cards: noteCards,
         });
       }
     });
     return grouped;
-  }, [notes]);
+  }, [noteIndexes, getNoteById]);
 
   // Collect all flashcards from notes (for study all and count)
   const allNoteFlashcards = useMemo(() => {
@@ -107,7 +110,7 @@ const FlashcardsPage = () => {
 
   const renameDeck = (deckId: string) => {
     if (!editingDeckName.trim()) return;
-    const updated = decks.map(d => 
+    const updated = decks.map(d =>
       d.id === deckId ? { ...d, name: editingDeckName.trim() } : d
     );
     setDecks(updated);
@@ -122,7 +125,7 @@ const FlashcardsPage = () => {
       content: "",
       color: cardColors[Math.floor(Math.random() * cardColors.length)].name,
     };
-    const updated = decks.map(d => 
+    const updated = decks.map(d =>
       d.id === deckId ? { ...d, cards: [...d.cards, newCard] } : d
     );
     setDecks(updated);
@@ -130,8 +133,8 @@ const FlashcardsPage = () => {
   };
 
   const updateCard = (deckId: string, cardId: string, content: string) => {
-    const updated = decks.map(d => 
-      d.id === deckId 
+    const updated = decks.map(d =>
+      d.id === deckId
         ? { ...d, cards: d.cards.map(c => c.id === cardId ? { ...c, content } : c) }
         : d
     );
@@ -140,8 +143,8 @@ const FlashcardsPage = () => {
   };
 
   const deleteCard = (deckId: string, cardId: string) => {
-    const updated = decks.map(d => 
-      d.id === deckId 
+    const updated = decks.map(d =>
+      d.id === deckId
         ? { ...d, cards: d.cards.filter(c => c.id !== cardId) }
         : d
     );
@@ -172,18 +175,24 @@ const FlashcardsPage = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-background overflow-hidden">
+    <div className="flex-1 flex flex-col bg-background overflow-y-auto scrollbar-thin">
       <ScrollArea className="flex-1">
-        <div className="max-w-4xl mx-auto p-6 space-y-8">
+        <div className="max-w-6xl mx-auto p-8 space-y-8">
           {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">Flashcards</h1>
-              <p className="text-muted-foreground mt-1">
-                {allFlashcards.length} cards total • {allNoteFlashcards.length} from notes • {decks.reduce((acc, d) => acc + d.cards.length, 0)} independent
-              </p>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-foreground">Flashcards</h1>
+                <p className="text-muted-foreground mt-1">
+                  {allFlashcards.length} cards total • {allNoteFlashcards.length} from notes • {decks.reduce((acc, d) => acc + d.cards.length, 0)} independent
+                </p>
+              </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Global Study Button */}
           {allFlashcards.length > 0 && (
@@ -192,6 +201,8 @@ const FlashcardsPage = () => {
               className="w-full p-6 rounded-2xl bg-linear-to-r from-primary/10 to-primary/5 border border-primary/20 hover:border-primary/40 transition-colors group"
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
             >
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-xl bg-primary/20 group-hover:bg-primary/30 transition-colors">

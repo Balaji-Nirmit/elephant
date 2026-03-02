@@ -34,24 +34,24 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
   const [newTagInput, setNewTagInput] = useState("");
   const [showTagInput, setShowTagInput] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
-  const [showIndex, setShowIndex] = useState(true);
+  const [showIndex, setShowIndex] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   // Index functionality
   const { index, scrollToHeading } = useHeadingIndex(note.blocks);
   const { exportNote } = useNoteExport();
-  
+
   // Undo/Redo functionality
   const { pushState, undo, redo, canUndo, canRedo, resetHistory } = useUndoRedo(note.blocks, {
     maxHistorySize: 100,
     debounceMs: 300,
   });
-  
+
   // Reset history when switching notes
   useEffect(() => {
     resetHistory(note.blocks);
   }, [note.id, resetHistory]);
-  
+
   // Handle undo action
   const handleUndo = useCallback(() => {
     const previousBlocks = undo();
@@ -59,7 +59,7 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
       onUpdate({ blocks: previousBlocks });
     }
   }, [undo, onUpdate]);
-  
+
   // Handle redo action
   const handleRedo = useCallback(() => {
     const nextBlocks = redo();
@@ -67,13 +67,13 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
       onUpdate({ blocks: nextBlocks });
     }
   }, [redo, onUpdate]);
-  
+
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const modKey = isMac ? e.metaKey : e.ctrlKey;
-      
+
       if (modKey && e.key.toLowerCase() === "z") {
         if (e.shiftKey) {
           e.preventDefault();
@@ -83,14 +83,14 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
           handleUndo();
         }
       }
-      
+
       // Windows-style redo with Ctrl+Y
       if (!isMac && e.ctrlKey && e.key.toLowerCase() === "y") {
         e.preventDefault();
         handleRedo();
       }
     };
-    
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleUndo, handleRedo]);
@@ -154,9 +154,8 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
   return (
     <>
       <motion.div
-        className={`flex-1 h-full bg-card flex flex-col overflow-hidden transition-all duration-300 ${
-          focusMode ? 'fixed inset-0 z-50 bg-background' : ''
-        }`}
+        className={`flex-1 h-full bg-card flex flex-col overflow-hidden transition-all duration-300 ${focusMode ? 'fixed inset-0 z-50 bg-background' : ''
+          }`}
         layout
       >
         {/* Floating Toolbar - appears on text selection */}
@@ -175,275 +174,261 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
         </AnimatePresence>
 
         {/* Top Bar */}
-      <motion.div 
-        className={`flex items-center justify-between px-6 py-3 border-b border-border transition-all duration-300 ${
-          focusMode 
-            ? 'bg-transparent border-transparent opacity-0 hover:opacity-100 absolute top-0 left-0 right-0 z-10' 
-            : 'bg-card/50 backdrop-blur-sm'
-        }`}
-        initial={false}
-        animate={{ 
-          opacity: focusMode ? 0 : 1,
-        }}
-        whileHover={{ opacity: 1 }}
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="w-3 h-3" />
-            <span>Updated {format(new Date(note.updatedAt), "MMM d, h:mm a")}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {/* Undo/Redo Buttons */}
-          <TooltipProvider delayDuration={200}>
-            <div className="flex items-center gap-0.5 mr-2 border-r border-border pr-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <motion.button
-                    onClick={handleUndo}
-                    disabled={!canUndo}
-                    className={`p-2 rounded-lg transition-colors ${
-                      canUndo
-                        ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                        : 'text-muted-foreground/30 cursor-not-allowed'
-                    }`}
-                    whileHover={canUndo ? { scale: 1.1 } : {}}
-                    whileTap={canUndo ? { scale: 0.9 } : {}}
-                  >
-                    <Undo2 className="w-4 h-4" />
-                  </motion.button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Undo <kbd className="ml-1 px-1.5 py-0.5 text-[10px] bg-muted rounded font-mono">⌘Z</kbd></p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <motion.button
-                    onClick={handleRedo}
-                    disabled={!canRedo}
-                    className={`p-2 rounded-lg transition-colors ${
-                      canRedo
-                        ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                        : 'text-muted-foreground/30 cursor-not-allowed'
-                    }`}
-                    whileHover={canRedo ? { scale: 1.1 } : {}}
-                    whileTap={canRedo ? { scale: 0.9 } : {}}
-                  >
-                    <Redo2 className="w-4 h-4" />
-                  </motion.button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Redo <kbd className="ml-1 px-1.5 py-0.5 text-[10px] bg-muted rounded font-mono">⇧⌘Z</kbd></p>
-                </TooltipContent>
-              </Tooltip>
+        <motion.div
+          className={`flex items-center justify-between px-6 py-3 border-b border-border transition-all duration-300 ${focusMode
+              ? 'bg-transparent border-transparent opacity-0 hover:opacity-100 absolute top-0 left-0 right-0 z-10'
+              : 'bg-card/50 backdrop-blur-sm'
+            }`}
+          initial={false}
+          animate={{
+            opacity: focusMode ? 0 : 1,
+          }}
+          whileHover={{ opacity: 1 }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="w-3 h-3" />
+              <span>Updated {format(new Date(note.updatedAt), "MMM d, h:mm a")}</span>
             </div>
-          </TooltipProvider>
-          
-          {/* Templates Button */}
-          <motion.button
-            onClick={() => setShowTemplates(true)}
-            className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            title="Use a template"
-          >
-            <Sparkles className="w-4 h-4" />
-          </motion.button>
+          </div>
+          <div className="flex items-center gap-1">
+            {/* Undo/Redo Buttons */}
+            <TooltipProvider delayDuration={200}>
+              <div className="flex items-center gap-0.5 mr-2 border-r border-border pr-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <motion.button
+                      onClick={handleUndo}
+                      disabled={!canUndo}
+                      className={`p-2 rounded-lg transition-colors ${canUndo
+                          ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                          : 'text-muted-foreground/30 cursor-not-allowed'
+                        }`}
+                      whileHover={canUndo ? { scale: 1.1 } : {}}
+                      whileTap={canUndo ? { scale: 0.9 } : {}}
+                    >
+                      <Undo2 className="w-4 h-4" />
+                    </motion.button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>Undo <kbd className="ml-1 px-1.5 py-0.5 text-[10px] rounded">⌘Z</kbd></p>
+                  </TooltipContent>
+                </Tooltip>
 
-          {/* Focus Mode Toggle */}
-          <motion.button
-            onClick={onToggleFocusMode}
-            className={`p-2 rounded-lg transition-colors ${
-              focusMode
-                ? 'bg-primary/10 text-primary'
-                : 'hover:bg-muted text-muted-foreground'
-            }`}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            title={focusMode ? "Exit focus mode (Esc)" : "Enter focus mode"}
-          >
-            {focusMode ? <Minimize2 className="w-4 h-4" /> : <Focus className="w-4 h-4" />}
-          </motion.button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <motion.button
+                      onClick={handleRedo}
+                      disabled={!canRedo}
+                      className={`p-2 rounded-lg transition-colors ${canRedo
+                          ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                          : 'text-muted-foreground/30 cursor-not-allowed'
+                        }`}
+                      whileHover={canRedo ? { scale: 1.1 } : {}}
+                      whileTap={canRedo ? { scale: 0.9 } : {}}
+                    >
+                      <Redo2 className="w-4 h-4" />
+                    </motion.button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>Redo <kbd className="ml-1 px-1.5 py-0.5 text-[10px] rounded">⇧⌘Z</kbd></p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
 
-          {/* Index Toggle */}
-          <motion.button
-            onClick={() => setShowIndex(!showIndex)}
-            className={`p-2 rounded-lg transition-colors relative ${
-              showIndex
-                ? 'bg-primary/10 text-primary'
-                : 'hover:bg-muted text-muted-foreground'
-            }`}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            title="Toggle document index"
-          >
-            <BookOpen className="w-4 h-4" />
-            {index.length > 0 && (
-              <motion.span
-                className="absolute top-0 right-0 w-4 h-4 text-[10px] font-bold bg-primary text-primary-foreground rounded-full flex items-center justify-center"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-              >
-                {index.length}
-              </motion.span>
-            )}
-          </motion.button>
-
-          <motion.button
-            onClick={() => setIsFavorite(!isFavorite)}
-            className={`p-2 rounded-lg transition-colors ${isFavorite ? 'text-yellow-500' : 'hover:bg-muted text-muted-foreground'}`}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <Star className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
-          </motion.button>
-          {/* Export Button */}
-          <div className="relative">
+            {/* Templates Button */}
             <motion.button
-              onClick={() => setShowExportMenu(!showExportMenu)}
+              onClick={() => setShowTemplates(true)}
               className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              title="Export note"
+              title="Use a template"
             >
-              <Download className="w-4 h-4" />
+              <Sparkles className="w-4 h-4" />
             </motion.button>
-            <AnimatePresence>
-              {showExportMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: -5, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -5, scale: 0.95 }}
-                  className="absolute top-full right-0 mt-2 bg-card border border-border rounded-lg shadow-xl p-1 min-w-40 z-50"
+
+            {/* Focus Mode Toggle */}
+            <motion.button
+              onClick={onToggleFocusMode}
+              className={`p-2 rounded-lg transition-colors ${focusMode
+                  ? 'bg-primary/10 text-primary'
+                  : 'hover:bg-muted text-muted-foreground'
+                }`}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              title={focusMode ? "Exit focus mode (Esc)" : "Enter focus mode"}
+            >
+              {focusMode ? <Minimize2 className="w-4 h-4" /> : <Focus className="w-4 h-4" />}
+            </motion.button>
+
+            {/* Index Toggle */}
+            <motion.button
+              onClick={() => setShowIndex(!showIndex)}
+              className={`p-2 rounded-lg transition-colors relative ${showIndex
+                  ? 'bg-primary/10 text-primary'
+                  : 'hover:bg-muted text-muted-foreground'
+                }`}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              title="Toggle document index"
+            >
+              <BookOpen className="w-4 h-4" />
+              {index.length > 0 && (
+                <motion.span
+                  className="absolute top-0 right-0 w-4 h-4 text-[10px] font-bold bg-primary text-primary-foreground rounded-full flex items-center justify-center"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
                 >
-                  <button
-                    onClick={() => { exportNote(note, "markdown"); setShowExportMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
-                  >
-                    <FileCode className="w-4 h-4" /> Markdown
-                  </button>
-                  <button
-                    onClick={() => { exportNote(note, "text"); setShowExportMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
-                  >
-                    <FileText className="w-4 h-4" /> Plain Text
-                  </button>
-                  <button
-                    onClick={() => { exportNote(note, "html"); setShowExportMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
-                  >
-                    <FileType className="w-4 h-4" /> HTML
-                  </button>
-                </motion.div>
+                  {index.length}
+                </motion.span>
               )}
-            </AnimatePresence>
-          </div>
+            </motion.button>
 
-          <motion.button
-            className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <Share2 className="w-4 h-4" />
-          </motion.button>
-          <motion.button
-            className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </motion.button>
-        </div>
-      </motion.div>
-
-      {/* Find & Replace Bar (Cmd+F) */}
-      <FindReplaceBar
-        blocks={note.blocks}
-        onReplace={handleFindReplace}
-      />
-
-      {/* Templates Modal */}
-      <TemplatesModal
-        isOpen={showTemplates}
-        onClose={() => setShowTemplates(false)}
-        onSelectTemplate={handleApplyTemplate}
-      />
-
-      {/* Index Dropdown Menu */}
-      <AnimatePresence>
-        {showIndex && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.15 }}
-            className="fixed right-6 top-16 z-50 w-72 max-h-96 bg-card border border-border rounded-lg shadow-lg overflow-hidden flex flex-col"
-          >
-            {/* Header */}
-            <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
-              <h3 className="text-sm font-semibold text-foreground">Document Sections</h3>
+            <motion.button
+              onClick={() => setIsFavorite(!isFavorite)}
+              className={`p-2 rounded-lg transition-colors ${isFavorite ? 'text-yellow-500' : 'hover:bg-muted text-muted-foreground'}`}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+            >
+              <Star className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+            </motion.button>
+            {/* Export Button */}
+            <div className="relative">
+              <motion.button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                title="Export note"
+              >
+                <Download className="w-4 h-4" />
+              </motion.button>
+              <AnimatePresence>
+                {showExportMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                    className="absolute top-full right-0 mt-2 bg-card border border-border rounded-lg shadow-xl p-1 min-w-40 z-50"
+                  >
+                    <button
+                      onClick={() => { exportNote(note, "markdown"); setShowExportMenu(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+                    >
+                      <FileCode className="w-4 h-4" /> Markdown
+                    </button>
+                    <button
+                      onClick={() => { exportNote(note, "text"); setShowExportMenu(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+                    >
+                      <FileText className="w-4 h-4" /> Plain Text
+                    </button>
+                    <button
+                      onClick={() => { exportNote(note, "html"); setShowExportMenu(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+                    >
+                      <FileType className="w-4 h-4" /> HTML
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Content */}
-            {index.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center py-8">
-                <p className="text-sm text-muted-foreground text-center px-4">
-                  No headings yet. Add headings to your note to create an index.
-                </p>
-              </div>
-            ) : (
-              <div className="flex-1 overflow-y-auto">
-                <div className="py-2 px-1">
-                  {index.map((heading) => (
-                    <motion.button
-                      key={heading.id}
-                      onClick={() => {
-                        scrollToHeading(heading.id);
-                        setShowIndex(false);
-                      }}
-                      className="w-full text-left px-4 py-2.5 hover:bg-muted/60 transition-colors group text-sm"
-                      style={{
-                        paddingLeft: `${16 + heading.indent * 16}px`,
-                      }}
-                      whileHover={{ x: 2 }}
-                    >
-                      <span
-                        className={`block truncate transition-colors ${
-                          heading.level === 1
-                            ? 'font-medium text-foreground'
-                            : heading.level === 2
-                            ? 'font-normal text-foreground/85'
-                            : 'text-foreground/70 text-xs'
-                        }`}
-                      >
-                        {heading.text || `Untitled ${heading.level === 1 ? "Heading" : "Subheading"}`}
-                      </span>
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-            )}
+            <motion.button
+              className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+            >
+              <Share2 className="w-4 h-4" />
+            </motion.button>
+          </div>
+        </motion.div>
 
-            {/* Footer */}
-            {index.length > 0 && (
-              <div className="px-4 py-2 border-t border-border/50 bg-muted/20 text-xs text-muted-foreground">
-                {index.length} section{index.length !== 1 ? 's' : ''}
+        {/* Find & Replace Bar (Cmd+F) */}
+        <FindReplaceBar
+          blocks={note.blocks}
+          onReplace={handleFindReplace}
+        />
+
+        {/* Templates Modal */}
+        <TemplatesModal
+          isOpen={showTemplates}
+          onClose={() => setShowTemplates(false)}
+          onSelectTemplate={handleApplyTemplate}
+        />
+
+        {/* Index Dropdown Menu */}
+        <AnimatePresence>
+          {showIndex && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.15 }}
+              className="fixed right-6 top-16 z-50 w-72 max-h-96 bg-card border border-border rounded-lg shadow-lg overflow-hidden flex flex-col"
+            >
+              {/* Header */}
+              <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
+                <h3 className="text-sm font-semibold text-foreground">Document Sections</h3>
               </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+              {/* Content */}
+              {index.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center py-8">
+                  <p className="text-sm text-muted-foreground text-center px-4">
+                    No headings yet. Add headings to your note to create an index.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto">
+                  <div className="py-2 px-1">
+                    {index.map((heading) => (
+                      <motion.button
+                        key={heading.id}
+                        onClick={() => {
+                          scrollToHeading(heading.id);
+                          setShowIndex(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 hover:bg-muted/60 transition-colors group text-sm"
+                        style={{
+                          paddingLeft: `${16 + heading.indent * 16}px`,
+                        }}
+                        whileHover={{ x: 2 }}
+                      >
+                        <span
+                          className={`block truncate transition-colors ${heading.level === 1
+                              ? 'font-medium text-foreground'
+                              : heading.level === 2
+                                ? 'font-normal text-foreground/85'
+                                : 'text-foreground/70 text-xs'
+                            }`}
+                        >
+                          {heading.text || `Untitled ${heading.level === 1 ? "Heading" : "Subheading"}`}
+                        </span>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              {index.length > 0 && (
+                <div className="px-4 py-2 border-t border-border/50 bg-muted/20 text-xs text-muted-foreground">
+                  {index.length} section{index.length !== 1 ? 's' : ''}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Main Content Wrapper */}
         <div className="flex flex-1 overflow-hidden">
           {/* Content Area */}
-          <div className={`flex-1 overflow-y-auto scrollbar-thin transition-all duration-300 ${
-            focusMode
+          <div className={`flex-1 overflow-y-auto scrollbar-thin transition-all duration-300 ${focusMode
               ? 'bg-linear-to-br from-background via-background to-primary/5 pt-8'
               : ''
-          }`}>
+            }`}>
             {/* Focus mode decorative elements */}
             {focusMode && (
               <>
@@ -455,145 +440,143 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
             )}
 
             <motion.div
-          className={`mx-auto transition-all duration-300 relative z-10 ${
-            focusMode
-              ? 'max-w-3xl pt-16 px-4 md:px-6 py-6'
-              : 'max-w-4xl p-6 md:p-10'
-          }`}
-          layout
-        >
-          {/* Focus mode exit hint */}
-          <AnimatePresence>
-            {focusMode && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="text-center mb-12"
-              >
-                <span className="text-xs text-muted-foreground bg-primary/10 px-4 py-2 rounded-full border border-primary/20 inline-block">
-                  ✨ Focus mode • Press <kbd className="px-2 py-1 bg-primary/20 rounded text-[10px] font-mono ml-1">Esc</kbd> to exit
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Title */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`${focusMode ? 'mb-8' : 'mb-6'}`}
-          >
-            <input
-              type="text"
-              value={note.title}
-              onChange={(e) => onUpdate({ title: e.target.value })}
-              className={`w-full font-bold text-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30 tracking-tight transition-all duration-300 ${
-                focusMode
-                  ? 'text-6xl md:text-7xl text-center bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent'
-                  : 'text-4xl md:text-5xl'
-              }`}
-              placeholder="Untitled"
-            />
-          </motion.div>
-
-          {/* Tags - hidden in focus mode */}
-          <AnimatePresence>
-            {!focusMode && (
-              <motion.div
-                initial={{ opacity: 0, y: 10, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: "auto" }}
-                exit={{ opacity: 0, y: -10, height: 0 }}
-                transition={{ delay: 0.05 }}
-                className="flex items-center gap-2 mb-8 flex-wrap overflow-hidden"
-              >
-                {note.tags.map((tag, index) => (
-                  <motion.span
-                    key={tag.id}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all hover:shadow-sm ${getTagStyle(tag.color)}`}
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ delay: index * 0.05 }}
-                    whileHover={{ scale: 1.05 }}
+              className={`mx-auto transition-all duration-300 relative z-10 ${focusMode
+                  ? 'max-w-3xl pt-16 px-4 md:px-6 py-6'
+                  : 'max-w-4xl p-6 md:p-10'
+                }`}
+              layout
+            >
+              {/* Focus mode exit hint */}
+              <AnimatePresence>
+                {focusMode && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="text-center mb-12"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
-                    {tag.label}
-                    <button
-                      onClick={() => handleRemoveTag(tag.id)}
-                      className="ml-0.5 hover:text-destructive transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </motion.span>
-                ))}
-                
-                {showTagInput ? (
-                  <motion.input
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: "auto", opacity: 1 }}
-                    type="text"
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleAddTag();
-                      if (e.key === "Escape") setShowTagInput(false);
-                    }}
-                    onBlur={() => {
-                      if (newTagInput) handleAddTag();
-                      else setShowTagInput(false);
-                    }}
-                    autoFocus
-                    className="px-3 py-1.5 text-xs border-2 border-primary rounded-full outline-none bg-transparent min-w-20 focus:ring-2 focus:ring-primary/20"
-                    placeholder="Tag name"
-                  />
-                ) : (
-                  <motion.button
-                    onClick={() => setShowTagInput(true)}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-all"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Plus className="w-3 h-3" />
-                    Add tag
-                  </motion.button>
+                    <span className="text-xs text-muted-foreground bg-primary/10 px-4 py-2 rounded-full border border-primary/20 inline-block">
+                      ✨ Focus mode • Press <kbd className="px-2 py-1 bg-primary/20 rounded text-[10px] font-mono ml-1">Esc</kbd> to exit
+                    </span>
+                  </motion.div>
                 )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </AnimatePresence>
 
-          {/* Notion-like Editor */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className={focusMode
-              ? 'text-lg leading-relaxed prose prose-invert max-w-none **:transition-colors'
-              : ''
-            }
-          >
-            <NotionEditor blocks={note.blocks} onChange={handleBlocksChange} />
-          </motion.div>
+              {/* Title */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`${focusMode ? 'mb-8' : 'mb-6'}`}
+              >
+                <input
+                  type="text"
+                  value={note.title}
+                  onChange={(e) => onUpdate({ title: e.target.value })}
+                  className={`w-full font-bold text-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30 tracking-tight transition-all duration-300 ${focusMode
+                      ? 'text-6xl md:text-7xl text-center bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent'
+                      : 'text-4xl md:text-5xl'
+                    }`}
+                  placeholder="Untitled"
+                />
+              </motion.div>
+
+              {/* Tags - hidden in focus mode */}
+              <AnimatePresence>
+                {!focusMode && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: "auto" }}
+                    exit={{ opacity: 0, y: -10, height: 0 }}
+                    transition={{ delay: 0.05 }}
+                    className="flex items-center gap-2 mb-8 flex-wrap overflow-hidden"
+                  >
+                    {note.tags.map((tag, index) => (
+                      <motion.span
+                        key={tag.id}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all hover:shadow-sm ${getTagStyle(tag.color)}`}
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ delay: index * 0.05 }}
+                        whileHover={{ scale: 1.05 }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
+                        {tag.label}
+                        <button
+                          onClick={() => handleRemoveTag(tag.id)}
+                          className="ml-0.5 hover:text-destructive transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </motion.span>
+                    ))}
+
+                    {showTagInput ? (
+                      <motion.input
+                        initial={{ width: 0, opacity: 0 }}
+                        animate={{ width: "auto", opacity: 1 }}
+                        type="text"
+                        value={newTagInput}
+                        onChange={(e) => setNewTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAddTag();
+                          if (e.key === "Escape") setShowTagInput(false);
+                        }}
+                        onBlur={() => {
+                          if (newTagInput) handleAddTag();
+                          else setShowTagInput(false);
+                        }}
+                        autoFocus
+                        className="px-3 py-1.5 text-xs border-2 border-primary rounded-full outline-none bg-transparent min-w-20 focus:ring-2 focus:ring-primary/20"
+                        placeholder="Tag name"
+                      />
+                    ) : (
+                      <motion.button
+                        onClick={() => setShowTagInput(true)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-all"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add tag
+                      </motion.button>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Notion-like Editor */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className={focusMode
+                  ? 'text-lg leading-relaxed prose prose-invert max-w-none **:transition-colors'
+                  : ''
+                }
+              >
+                <NotionEditor blocks={note.blocks} onChange={handleBlocksChange} />
+              </motion.div>
             </motion.div>
           </div>
         </div>
 
         {/* Focus mode floating exit button */}
-      <AnimatePresence>
-        {focusMode && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            onClick={onToggleFocusMode}
-            className="fixed bottom-6 right-6 p-3 rounded-full bg-primary/10 border border-primary/30 shadow-lg hover:bg-primary/20 hover:border-primary/50 text-primary transition-all z-50"
-            whileHover={{ scale: 1.15 }}
-            whileTap={{ scale: 0.85 }}
-            title="Exit focus mode (Esc)"
-          >
-            <Minimize2 className="w-5 h-5" />
-          </motion.button>
-        )}
-      </AnimatePresence>
+        <AnimatePresence>
+          {focusMode && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              onClick={onToggleFocusMode}
+              className="fixed bottom-6 right-6 p-3 rounded-full bg-primary/10 border border-primary/30 shadow-lg hover:bg-primary/20 hover:border-primary/50 text-primary transition-all z-50"
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.85 }}
+              title="Exit focus mode (Esc)"
+            >
+              <Minimize2 className="w-5 h-5" />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </motion.div>
     </>
   );

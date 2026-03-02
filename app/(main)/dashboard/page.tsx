@@ -1,30 +1,37 @@
 'use client'
 import { motion } from "framer-motion";
 import { StickyNote, Clock, Star, Plus, FolderOpen, ArrowRight } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useNotesContext } from "@/contexts/NotesContext";
 import { formatDistanceToNow } from "date-fns";
+import Link from "next/link";
 
-interface HomePageProps {
-  onNavigate: (nav: string, noteId?: string) => void;
-}
-
-const Dashboard = ({ onNavigate }: HomePageProps) => {
-  const { notes, folders, getRecentNotes, createNote } = useNotesContext();
-  const recentNotes = getRecentNotes(6);
+const Dashboard = () => {
+  const router = useRouter();
+  const { isInitialized, noteIndexes, folders, getRecentNoteIndexes, createNote, getNoteById } = useNotesContext();
+  const recentNoteIndexes = getRecentNoteIndexes(6);
 
   const stats = [
-    { label: "Total Notes", value: notes.length, icon: StickyNote, color: "primary" },
+    { label: "Total Notes", value: noteIndexes.length, icon: StickyNote, color: "primary" },
     { label: "Folders", value: folders.length, icon: FolderOpen, color: "accent" },
   ];
 
   const handleQuickNote = () => {
     const note = createNote();
-    onNavigate("ideas", note.id);
+    router.push(`/note/ideas/${note.id}`);
   };
+
+  if (!isInitialized) {
+    return (
+      <div className="flex-1 h-full flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Loading dashboard...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 h-full bg-background overflow-y-auto scrollbar-thin">
-      <div className="max-w-4xl mx-auto p-8">
+      <div className="max-w-6xl mx-auto p-8">
         {/* Welcome Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -58,7 +65,7 @@ const Dashboard = ({ onNavigate }: HomePageProps) => {
               <p className="text-sm text-muted-foreground">{stat.label}</p>
             </div>
           ))}
-          
+
           {/* Quick Actions */}
           <motion.button
             onClick={handleQuickNote}
@@ -72,17 +79,18 @@ const Dashboard = ({ onNavigate }: HomePageProps) => {
             <p className="text-sm font-medium text-primary">Quick Note</p>
           </motion.button>
 
-          <motion.button
-            onClick={() => onNavigate("ideas")}
-            className="bg-card hover:bg-muted rounded-xl p-4 border border-border flex flex-col items-center justify-center gap-2 transition-colors"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-              <ArrowRight className="w-5 h-5 text-muted-foreground" />
-            </div>
-            <p className="text-sm font-medium text-muted-foreground">All Notes</p>
-          </motion.button>
+          <Link href="/note/ideas">
+            <motion.div
+              className="bg-card hover:bg-muted rounded-xl p-4 border border-border flex flex-col items-center justify-center gap-2 transition-colors cursor-pointer"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                <ArrowRight className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">All Notes</p>
+            </motion.div>
+          </Link>
         </motion.div>
 
         {/* Recent Notes */}
@@ -96,15 +104,12 @@ const Dashboard = ({ onNavigate }: HomePageProps) => {
               <Clock className="w-5 h-5 text-muted-foreground" />
               Recent Notes
             </h2>
-            <button
-              onClick={() => onNavigate("ideas")}
-              className="text-sm text-primary hover:underline"
-            >
+            <Link href="/note/ideas" className="text-sm text-primary hover:underline">
               View all
-            </button>
+            </Link>
           </div>
 
-          {recentNotes.length === 0 ? (
+          {recentNoteIndexes.length === 0 ? (
             <div className="bg-card rounded-xl border border-border p-8 text-center">
               <StickyNote className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
               <p className="text-muted-foreground mb-4">No notes yet</p>
@@ -119,38 +124,41 @@ const Dashboard = ({ onNavigate }: HomePageProps) => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recentNotes.map((note, index) => (
-                <motion.div
-                  key={note.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 + index * 0.05 }}
-                  onClick={() => onNavigate("ideas", note.id)}
-                  className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"
-                >
-                  <h3 className="font-medium text-foreground truncate mb-2">
-                    {note.title || "Untitled"}
-                  </h3>
-                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                    {note.blocks.find((b) => b.content)?.content || "No content"}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex gap-1">
-                      {note.tags.slice(0, 2).map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary"
-                        >
-                          {tag.label}
+              {recentNoteIndexes.map((noteIndex, index) => {
+                const fullNote = getNoteById(noteIndex.id);
+                return (
+                  <Link key={noteIndex.id} href={`/note/ideas/${noteIndex.id}`}>
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.1 + index * 0.05 }}
+                      className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"
+                    >
+                      <h3 className="font-medium text-foreground truncate mb-2">
+                        {noteIndex.title || "Untitled"}
+                      </h3>
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+                        {fullNote?.blocks.find((b) => b.content)?.content || "No content"}
+                      </p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex gap-1">
+                          {noteIndex.tags.slice(0, 2).map((tag) => (
+                            <span
+                              key={tag.id}
+                              className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary"
+                            >
+                              {tag.label}
+                            </span>
+                          ))}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(noteIndex.updatedAt), { addSuffix: true })}
                         </span>
-                      ))}
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
+                      </div>
+                    </motion.div>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </motion.div>

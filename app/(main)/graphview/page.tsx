@@ -1,15 +1,13 @@
 'use client';
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { Network, ArrowLeft } from "lucide-react";
 import GraphView from "@/components/GraphView";
 
-interface GraphPageProps {
-  onNavigate: (nav: string, noteId?: string) => void;
-}
-
-const GraphPage = ({ onNavigate }: GraphPageProps) => {
+const GraphPage = () => {
+  const router = useRouter();
   const handleSelectNote = (noteId: string) => {
-    onNavigate("ideas", noteId);
+    router.push(`/note/ideas/${noteId}`);
   };
 
   return (
@@ -22,7 +20,7 @@ const GraphPage = ({ onNavigate }: GraphPageProps) => {
       >
         <div className="flex items-center gap-4">
           <motion.button
-            onClick={() => onNavigate("home")}
+            onClick={() => router.push("/dashboard")}
             className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

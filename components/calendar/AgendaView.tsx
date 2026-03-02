@@ -1,16 +1,17 @@
 "use client"
 import { motion } from "framer-motion";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isAfter, isBefore, addDays } from "date-fns";
-import { Note } from "@/hooks/useNotes";
 import { CalendarEvent } from "@/hooks/useCalendarEvents";
 import { StickyNote, Clock, Calendar, Trash2 } from "lucide-react";
+import { Note, NoteIndex } from "@/lib/types";
 
 interface AgendaViewProps {
   currentMonth: Date;
-  notes: Note[];
+  notes: NoteIndex[];
   events: CalendarEvent[];
   onNoteClick: (noteId: string) => void;
   onDeleteEvent: (eventId: string) => void;
+  getNoteById?: (id: string) => Note | undefined;
 }
 
 interface AgendaItem {
@@ -24,7 +25,7 @@ interface AgendaItem {
   noteId?: string;
 }
 
-const AgendaView = ({ currentMonth, notes, events, onNoteClick, onDeleteEvent }: AgendaViewProps) => {
+const AgendaView = ({ currentMonth, notes, events, onNoteClick, onDeleteEvent, getNoteById }: AgendaViewProps) => {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const today = new Date();

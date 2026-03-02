@@ -1,10 +1,11 @@
 "use client"
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  StickyNote, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  StickyNote,
   Calendar as CalendarIcon,
   LayoutGrid,
   List,
@@ -37,14 +38,11 @@ import WeekView from "@/components/calendar/WeekView";
 import DayView from "@/components/calendar/DayView";
 import AgendaView from "@/components/calendar/AgendaView";
 
-interface CalendarPageProps {
-  onNavigate: (nav: string, noteId?: string) => void;
-}
-
 type ViewMode = "month" | "week" | "day" | "agenda";
 
-const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
-  const { notes } = useNotesContext();
+const CalendarPage = () => {
+  const router = useRouter();
+  const { noteIndexes, getNoteById } = useNotesContext();
   const { events, createEvent, deleteEvent } = useCalendarEvents();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -64,7 +62,7 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
   }, [currentDate]);
 
   const notesForDate = (date: Date) => {
-    return notes.filter((note) => isSameDay(new Date(note.createdAt), date));
+    return noteIndexes.filter((noteIndex) => isSameDay(new Date(noteIndex.createdAt), date));
   };
 
   const eventsForDate = (date: Date) => {
@@ -113,7 +111,7 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
   };
 
   const handleNoteClick = (noteId: string) => {
-    onNavigate("ideas", noteId);
+    router.push(`/note/ideas/${noteId}`);
   };
 
   const viewModes = [
@@ -165,11 +163,10 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
               <button
                 key={mode.id}
                 onClick={() => setViewMode(mode.id as ViewMode)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === mode.id
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === mode.id
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
-                }`}
+                  }`}
               >
                 <mode.icon className="w-4 h-4" />
                 <span className="hidden sm:inline">{mode.label}</span>
@@ -179,7 +176,7 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
         </motion.div>
 
         {/* Stats */}
-        <CalendarStats notes={notes} events={events} currentMonth={currentMonth} />
+        <CalendarStats notes={noteIndexes} events={events} currentMonth={currentMonth} />
 
         {/* Navigation */}
         <motion.div
@@ -325,20 +322,23 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
                     <div>
                       <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Notes</p>
                       <div className="space-y-2">
-                        {selectedDateNotes.map((note) => (
-                          <motion.div
-                            key={note.id}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            onClick={() => handleNoteClick(note.id)}
-                            className="p-3 rounded-lg bg-muted hover:bg-muted/80 cursor-pointer transition-colors"
-                          >
-                            <h4 className="font-medium truncate">{note.title || "Untitled"}</h4>
-                            <p className="text-sm text-muted-foreground truncate">
-                              {note.blocks.find((b) => b.content)?.content || "No content"}
-                            </p>
-                          </motion.div>
-                        ))}
+                        {selectedDateNotes.map((noteIndex) => {
+                          const fullNote = getNoteById(noteIndex.id);
+                          return (
+                            <motion.div
+                              key={noteIndex.id}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              onClick={() => handleNoteClick(noteIndex.id)}
+                              className="p-3 rounded-lg bg-muted hover:bg-muted/80 cursor-pointer transition-colors"
+                            >
+                              <h4 className="font-medium truncate">{noteIndex.title || "Untitled"}</h4>
+                              <p className="text-sm text-muted-foreground truncate">
+                                {fullNote?.blocks.find((b) => b.content)?.content || "No content"}
+                              </p>
+                            </motion.div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -373,11 +373,12 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
           >
             <WeekView
               currentDate={currentDate}
-              notes={notes}
+              notes={noteIndexes}
               events={events}
               onDateClick={(date) => { setSelectedDate(date); setIsEventModalOpen(true); }}
               onNoteClick={handleNoteClick}
               onDeleteEvent={deleteEvent}
+              getNoteById={getNoteById}
             />
           </motion.div>
         )}
@@ -390,11 +391,12 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
           >
             <DayView
               currentDate={currentDate}
-              notes={notes}
+              notes={noteIndexes}
               events={events}
               onAddEvent={() => { setSelectedDate(currentDate); setIsEventModalOpen(true); }}
               onNoteClick={handleNoteClick}
               onDeleteEvent={deleteEvent}
+              getNoteById={getNoteById}
             />
           </motion.div>
         )}
@@ -407,10 +409,11 @@ const CalendarPage = ({ onNavigate }: CalendarPageProps) => {
           >
             <AgendaView
               currentMonth={currentMonth}
-              notes={notes}
+              notes={noteIndexes}
               events={events}
               onNoteClick={handleNoteClick}
               onDeleteEvent={deleteEvent}
+              getNoteById={getNoteById}
             />
           </motion.div>
         )}

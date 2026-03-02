@@ -1,20 +1,21 @@
 "use client"
 import { motion } from "framer-motion";
 import { format, startOfWeek, addDays, isSameDay, isToday } from "date-fns";
-import { Note } from "@/hooks/useNotes";
+import { Note, NoteIndex } from "@/lib/types";
 import { CalendarEvent } from "@/hooks/useCalendarEvents";
 import { Plus, Trash2 } from "lucide-react";
 
 interface WeekViewProps {
   currentDate: Date;
-  notes: Note[];
+  notes: NoteIndex[];
   events: CalendarEvent[];
   onDateClick: (date: Date) => void;
   onNoteClick: (noteId: string) => void;
   onDeleteEvent: (eventId: string) => void;
+  getNoteById?: (id: string) => Note | undefined;
 }
 
-const WeekView = ({ currentDate, notes, events, onDateClick, onNoteClick, onDeleteEvent }: WeekViewProps) => {
+const WeekView = ({ currentDate, notes, events, onDateClick, onNoteClick, onDeleteEvent, getNoteById }: WeekViewProps) => {
   const weekStart = startOfWeek(currentDate);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 

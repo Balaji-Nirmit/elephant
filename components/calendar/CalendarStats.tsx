@@ -1,12 +1,12 @@
 "use client"
 import { motion } from "framer-motion";
 import { StickyNote, CalendarDays, Flame, CheckCircle } from "lucide-react";
-import { Note } from "@/hooks/useNotes";
+import { NoteIndex } from "@/lib/types";
 import { CalendarEvent } from "@/hooks/useCalendarEvents";
 import { format, isSameMonth, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from "date-fns";
 
 interface CalendarStatsProps {
-  notes: Note[];
+  notes: NoteIndex[];
   events: CalendarEvent[];
   currentMonth: Date;
 }

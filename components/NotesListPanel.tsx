@@ -2,43 +2,45 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Trash2, Search, Paperclip, Plus, X } from "lucide-react";
-import { Note } from "@/contexts/NotesContext";
+import { Note, NoteIndex } from "@/contexts/NotesContext";
 import { formatDistanceToNow } from "date-fns";
+import { SidebarTrigger } from "./ui/sidebar";
 
 interface NotesListPanelProps {
   title: string;
-  notes: Note[];
+  noteIndexes: NoteIndex[];
   activeNoteId: string | null;
   onSelectNote: (id: string) => void;
   onDeleteNote: (id: string) => void;
   onCreateNote: () => void;
+  getNoteById?: (id: string) => Note | undefined;
   showSearch?: boolean;
 }
 
 const NotesListPanel = ({
   title,
-  notes,
+  noteIndexes,
   activeNoteId,
   onSelectNote,
   onDeleteNote,
   onCreateNote,
+  getNoteById,
   showSearch = true,
 }: NotesListPanelProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
 
-  const filteredNotes = searchQuery
-    ? notes.filter(
-        (note) =>
-          note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          note.blocks.some((b) =>
-            b.content.toLowerCase().includes(searchQuery.toLowerCase())
-          )
+  const filteredNoteIndexes = searchQuery
+    ? noteIndexes.filter(
+        (index) =>
+          index.title.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : notes;
+    : noteIndexes;
 
-  const getPreview = (note: Note) => {
-    const textBlock = note.blocks.find((b) => b.content);
+  const getPreview = (noteIndex: NoteIndex) => {
+    if (!getNoteById) return "No content";
+    const fullNote = getNoteById(noteIndex.id);
+    const textBlock = fullNote?.blocks.find((b) => b.content);
     return textBlock?.content.slice(0, 50) || "No content";
   };
 
@@ -57,6 +59,7 @@ const NotesListPanel = ({
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between">
+        <SidebarTrigger className="-ml-1" />
           <h2 className="text-xl font-semibold text-foreground">{title}</h2>
           <div className="flex items-center gap-2">
             {showSearch && (
@@ -97,39 +100,39 @@ const NotesListPanel = ({
 
       {/* Notes List */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {filteredNotes.length === 0 ? (
+        {filteredNoteIndexes.length === 0 ? (
           <div className="p-4 text-center text-muted-foreground text-sm">
             {searchQuery ? "No notes found" : "No notes yet"}
           </div>
         ) : (
-          filteredNotes.map((note, index) => (
+          filteredNoteIndexes.map((noteIndex, index) => (
             <motion.div
-              key={note.id}
+              key={noteIndex.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.03 }}
-              onClick={() => onSelectNote(note.id)}
-              className={`note-item p-4 border-b border-border cursor-pointer group ${
-                activeNoteId === note.id ? "active" : ""
+              onClick={() => onSelectNote(noteIndex.id)}
+              className={`note-item p-4 border-b border-border cursor-pointer group transition-all ${
+                activeNoteId === noteIndex.id ? "bg-primary/10 border-l-2 border-primary rounded-l-lg" : ""
               }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-foreground truncate mb-1">
-                    {note.title || "Untitled"}
+                    {noteIndex.title || "Untitled"}
                   </h3>
                   <p className="text-sm text-muted-foreground line-clamp-1">
-                    {getPreview(note)}
+                    {getPreview(noteIndex)}
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {formatTime(note.updatedAt)}
+                    {formatTime(noteIndex.updatedAt)}
                   </span>
                   <motion.button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteNote(note.id);
+                      onDeleteNote(noteIndex.id);
                     }}
                     className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 transition-all"
                     whileHover={{ scale: 1.1 }}

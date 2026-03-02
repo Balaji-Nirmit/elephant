@@ -1741,7 +1741,7 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
             key={`${block.id}-${block.type}`}
             layout
             data-block-id={block.id}
-            ref={(el) => el && blockRefs.current.set(block.id, el)}
+            ref={(el) => { if (el) blockRefs.current.set(block.id, el); }}
             initial={{ opacity: 0, y: -5 }}
             animate={{
               opacity: draggedBlockId === block.id ? 0.5 : 1,

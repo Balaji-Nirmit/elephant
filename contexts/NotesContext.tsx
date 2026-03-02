@@ -1,17 +1,22 @@
+import { useNotes } from "@/hooks/useNotes";
+import { Folder, Note, NoteBlock, NoteIndex, FlashcardItem } from "@/lib/types";
 import { createContext, useContext, ReactNode } from "react";
-import { useNotes, Note, Folder, NoteBlock, FlashcardItem } from "@/hooks/useNotes";
 
 interface NotesContextType {
-  notes: Note[];
+  isInitialized: boolean;
+  noteIndexes: NoteIndex[];
+  noteBlocks: Record<string, NoteBlock[]>;
   folders: Folder[];
   createNote: (folderId?: string | null) => Note;
   updateNote: (id: string, updates: Partial<Note>) => void;
   deleteNote: (id: string) => void;
   createFolder: (name: string) => Folder;
   deleteFolder: (id: string) => void;
-  getNotesForFolder: (folderId: string | null) => Note[];
-  getRecentNotes: (limit?: number) => Note[];
-  searchNotes: (query: string) => Note[];
+  getRecentNoteIndexes: (limit?: number) => NoteIndex[];
+  getNoteIndexesForFolder: (folderId: string | null) => NoteIndex[];
+  searchNotes: (query: string) => NoteIndex[];
+  getNoteById: (id: string) => Note | undefined;
+  getBlocksForNote: (noteId: string) => NoteBlock[];
 }
 
 const NotesContext = createContext<NotesContextType | null>(null);
@@ -32,4 +37,4 @@ export const useNotesContext = () => {
   return context;
 };
 
-export type { Note, Folder, NoteBlock, FlashcardItem };
+export type { Note, Folder, NoteBlock, FlashcardItem, NoteIndex };

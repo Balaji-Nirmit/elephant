@@ -2,14 +2,14 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Folder, Plus, Trash2, FolderOpen, StickyNote, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useNotesContext } from "@/contexts/NotesContext";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
-interface FolderPageProps {
-  onNavigate: (nav: string, noteId?: string) => void;
-}
-
-const FolderPage = ({ onNavigate }: FolderPageProps) => {
-  const { folders, notes, createFolder, deleteFolder, createNote } = useNotesContext();
+const FolderPage = () => {
+  const router = useRouter();
+  const { isInitialized, folders, noteIndexes, createFolder, deleteFolder, createNote, getNoteIndexesForFolder, getNoteById } = useNotesContext();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
@@ -23,7 +23,7 @@ const FolderPage = ({ onNavigate }: FolderPageProps) => {
   };
 
   const getNotesInFolder = (folderId: string) => {
-    return notes.filter((note) => note.folderId === folderId);
+    return getNoteIndexesForFolder(folderId);
   };
 
   const getFolderColor = (color: string) => {
@@ -40,12 +40,21 @@ const FolderPage = ({ onNavigate }: FolderPageProps) => {
   const selectedFolder = folders.find((f) => f.id === selectedFolderId);
   const folderNotes = selectedFolderId ? getNotesInFolder(selectedFolderId) : [];
 
+  if (!isInitialized) {
+    return (
+      <div className="flex-1 h-full flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Loading folders...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 h-full bg-background overflow-hidden flex">
       {/* Folders List */}
       <div className="w-80 h-full bg-card border-r border-border flex flex-col">
         <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between">
+            <SidebarTrigger className="-ml-1"/>
             <h2 className="text-xl font-semibold text-foreground">Folders</h2>
             <motion.button
               onClick={() => setShowCreateModal(true)}
@@ -73,11 +82,10 @@ const FolderPage = ({ onNavigate }: FolderPageProps) => {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
                   onClick={() => setSelectedFolderId(folder.id)}
-                  className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer group transition-colors ${
-                    selectedFolderId === folder.id
+                  className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer group transition-colors ${selectedFolderId === folder.id
                       ? "bg-primary/10 border-l-2 border-primary"
                       : "hover:bg-muted"
-                  }`}
+                    }`}
                 >
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${getFolderColor(folder.color)}`}>
                     <FolderOpen className="w-5 h-5" />
@@ -140,8 +148,8 @@ const FolderPage = ({ onNavigate }: FolderPageProps) => {
                 <p className="text-muted-foreground mb-4">No notes in this folder</p>
                 <motion.button
                   onClick={() => {
-                    const note = createNote(selectedFolder.id);
-                    onNavigate("ideas", note.id);
+                    const note = createNote(selectedFolder?.id || null);
+                    router.push(`/note/ideas/${note.id}`);
                   }}
                   className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium"
                   whileHover={{ scale: 1.02 }}
@@ -156,8 +164,8 @@ const FolderPage = ({ onNavigate }: FolderPageProps) => {
                   <h3 className="text-lg font-semibold text-foreground">Notes</h3>
                   <motion.button
                     onClick={() => {
-                      const note = createNote(selectedFolder.id);
-                      onNavigate("ideas", note.id);
+                      const note = createNote(selectedFolder?.id || null);
+                      router.push(`/note/ideas/${note.id}`);
                     }}
                     className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground font-medium"
                     whileHover={{ scale: 1.02 }}
@@ -168,23 +176,26 @@ const FolderPage = ({ onNavigate }: FolderPageProps) => {
                   </motion.button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {folderNotes.map((note, index) => (
-                    <motion.div
-                      key={note.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      onClick={() => onNavigate("ideas", note.id)}
-                      className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"
-                    >
-                      <h3 className="font-medium text-foreground truncate mb-2">
-                        {note.title || "Untitled"}
-                      </h3>
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {note.blocks.find((b) => b.content)?.content || "No content"}
-                      </p>
-                    </motion.div>
-                  ))}
+                  {folderNotes.map((noteIndex, index) => {
+                    const fullNote = getNoteById(noteIndex.id);
+                    return (
+                      <Link key={noteIndex.id} href={`/note/ideas/${noteIndex.id}`}>
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"
+                        >
+                          <h3 className="font-medium text-foreground truncate mb-2">
+                            {noteIndex.title || "Untitled"}
+                          </h3>
+                          <p className="text-sm text-muted-foreground line-clamp-2">
+                            {fullNote?.blocks.find((b) => b.content)?.content || "No content"}
+                          </p>
+                        </motion.div>
+                      </Link>
+                    );
+                  })}
                 </div>
               </>
             )}

@@ -1,20 +1,21 @@
 "use client"
 import { motion } from "framer-motion";
 import { format, isSameDay, isToday } from "date-fns";
-import { Note } from "@/hooks/useNotes";
+import { Note, NoteIndex, NoteBlock } from "@/lib/types";
 import { CalendarEvent } from "@/hooks/useCalendarEvents";
 import { Plus, Trash2, StickyNote, Clock } from "lucide-react";
 
 interface DayViewProps {
   currentDate: Date;
-  notes: Note[];
+  notes: NoteIndex[];
   events: CalendarEvent[];
   onAddEvent: () => void;
   onNoteClick: (noteId: string) => void;
   onDeleteEvent: (eventId: string) => void;
+  getNoteById?: (id: string) => Note | undefined;
 }
 
-const DayView = ({ currentDate, notes, events, onAddEvent, onNoteClick, onDeleteEvent }: DayViewProps) => {
+const DayView = ({ currentDate, notes, events, onAddEvent, onNoteClick, onDeleteEvent, getNoteById }: DayViewProps) => {
   const dayNotes = notes.filter((note) => isSameDay(new Date(note.createdAt), currentDate));
   const dayEvents = events.filter((event) => isSameDay(new Date(event.date), currentDate));
   
@@ -83,7 +84,7 @@ const DayView = ({ currentDate, notes, events, onAddEvent, onNoteClick, onDelete
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{note.title || "Untitled"}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {note.blocks.find((b) => b.content)?.content || "No content"}
+                    {getNoteById?.(note.id)?.blocks.find((b: NoteBlock) => b.content)?.content || "No content"}
                   </p>
                 </div>
               </motion.div>

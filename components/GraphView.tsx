@@ -50,8 +50,8 @@ const edgeColors = {
 const GraphView = ({ onSelectNote }: GraphViewProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const animationRef = useRef<number>();
-  const { notes } = useNotesContext();
+  const animationRef = useRef<number | undefined>(undefined);
+  const { noteIndexes, getNoteById } = useNotesContext();
   
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
@@ -65,14 +65,14 @@ const GraphView = ({ onSelectNote }: GraphViewProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
-  // Get all unique tags from notes
+  // Get all unique tags from noteIndexes
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
-    notes.forEach((note) => {
-      note.tags.forEach((tag) => tagSet.add(tag.label));
+    noteIndexes.forEach((noteIndex) => {
+      noteIndex.tags.forEach((tag) => tagSet.add(tag.label));
     });
     return Array.from(tagSet).sort();
-  }, [notes]);
+  }, [noteIndexes]);
 
   // Filter logic: determine which nodes should be highlighted
   const highlightedNodeIds = useMemo(() => {
@@ -81,20 +81,23 @@ const GraphView = ({ onSelectNote }: GraphViewProps) => {
 
     const matchingNoteIds = new Set<string>();
     const matchingTagIds = new Set<string>();
-    
-    notes.forEach((note) => {
-      const matchesSearch = searchQuery.trim() === "" || 
-        note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        note.blocks.some((b) => b.content.toLowerCase().includes(searchQuery.toLowerCase()));
-      
+
+    noteIndexes.forEach((noteIndex) => {
+      const matchesSearch = searchQuery.trim() === "" ||
+        noteIndex.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (() => {
+          const fullNote = getNoteById(noteIndex.id);
+          return fullNote?.blocks.some((b) => b.content.toLowerCase().includes(searchQuery.toLowerCase())) ?? false;
+        })();
+
       const matchesTags = selectedTags.length === 0 ||
-        selectedTags.some((selectedTag) => 
-          note.tags.some((noteTag) => noteTag.label === selectedTag)
+        selectedTags.some((selectedTag) =>
+          noteIndex.tags.some((noteTag) => noteTag.label === selectedTag)
         );
-      
+
       if (matchesSearch && matchesTags) {
-        matchingNoteIds.add(note.id);
-        note.tags.forEach((tag) => matchingTagIds.add(`tag-${tag.label}`));
+        matchingNoteIds.add(noteIndex.id);
+        noteIndex.tags.forEach((tag) => matchingTagIds.add(`tag-${tag.label}`));
       }
     });
 
@@ -102,7 +105,7 @@ const GraphView = ({ onSelectNote }: GraphViewProps) => {
     selectedTags.forEach((tag) => matchingTagIds.add(`tag-${tag}`));
 
     return new Set([...matchingNoteIds, ...matchingTagIds]);
-  }, [notes, searchQuery, selectedTags]);
+  }, [noteIndexes, getNoteById, searchQuery, selectedTags]);
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
@@ -115,48 +118,51 @@ const GraphView = ({ onSelectNote }: GraphViewProps) => {
     setSelectedTags([]);
   };
 
-  // Build graph data from notes
+  // Build graph data from noteIndexes
   const graphData = useMemo(() => {
     const graphNodes: GraphNode[] = [];
     const graphEdges: GraphEdge[] = [];
     const tagMap = new Map<string, string[]>(); // tag -> noteIds
-    
-    // Create note nodes
-    notes.forEach((note, index) => {
-      const angle = (2 * Math.PI * index) / Math.max(notes.length, 1);
+
+    // Create note nodes from noteIndexes
+    noteIndexes.forEach((noteIndex, index) => {
+      const angle = (2 * Math.PI * index) / Math.max(noteIndexes.length, 1);
       const radius = 150 + Math.random() * 100;
-      
+
+      const fullNote = getNoteById(noteIndex.id);
+      const blockCount = fullNote?.blocks.length || 0;
+
       graphNodes.push({
-        id: note.id,
-        label: note.title || "Untitled",
+        id: noteIndex.id,
+        label: noteIndex.title || "Untitled",
         x: dimensions.width / 2 + Math.cos(angle) * radius,
         y: dimensions.height / 2 + Math.sin(angle) * radius,
         vx: 0,
         vy: 0,
         color: nodeColors.note,
-        radius: 24 + Math.min(note.blocks.length * 2, 16),
+        radius: 24 + Math.min(blockCount * 2, 16),
         type: "note",
-        noteData: note,
+        noteData: fullNote,
       });
-      
-      // Track tags
-      note.tags.forEach((tag) => {
+
+      // Track tags from noteIndex
+      noteIndex.tags.forEach((tag) => {
         const existing = tagMap.get(tag.label) || [];
-        existing.push(note.id);
+        existing.push(noteIndex.id);
         tagMap.set(tag.label, existing);
       });
     });
-    
+
     // Create tag nodes and edges
     tagMap.forEach((noteIds, tagLabel) => {
       if (noteIds.length > 1) {
         const tagId = `tag-${tagLabel}`;
         const connectedNotes = noteIds.map((id) => graphNodes.find((n) => n.id === id)!).filter(Boolean);
-        
+
         if (connectedNotes.length > 0) {
           const avgX = connectedNotes.reduce((sum, n) => sum + n.x, 0) / connectedNotes.length;
           const avgY = connectedNotes.reduce((sum, n) => sum + n.y, 0) / connectedNotes.length;
-          
+
           graphNodes.push({
             id: tagId,
             label: tagLabel,
@@ -168,7 +174,7 @@ const GraphView = ({ onSelectNote }: GraphViewProps) => {
             radius: 16,
             type: "tag",
           });
-          
+
           noteIds.forEach((noteId) => {
             graphEdges.push({
               source: noteId,
@@ -180,34 +186,39 @@ const GraphView = ({ onSelectNote }: GraphViewProps) => {
         }
       }
     });
-    
+
     // Find similar content connections (simple word overlap)
-    notes.forEach((note1, i) => {
-      notes.slice(i + 1).forEach((note2) => {
-        const content1 = note1.blocks.map((b) => b.content.toLowerCase()).join(" ");
-        const content2 = note2.blocks.map((b) => b.content.toLowerCase()).join(" ");
-        
+    noteIndexes.forEach((noteIndex1, i) => {
+      noteIndexes.slice(i + 1).forEach((noteIndex2) => {
+        const fullNote1 = getNoteById(noteIndex1.id);
+        const fullNote2 = getNoteById(noteIndex2.id);
+
+        if (!fullNote1 || !fullNote2) return;
+
+        const content1 = fullNote1.blocks.map((b) => b.content.toLowerCase()).join(" ");
+        const content2 = fullNote2.blocks.map((b) => b.content.toLowerCase()).join(" ");
+
         const words1 = new Set(content1.split(/\s+/).filter((w) => w.length > 4));
         const words2 = new Set(content2.split(/\s+/).filter((w) => w.length > 4));
-        
+
         let overlap = 0;
         words1.forEach((word) => {
           if (words2.has(word)) overlap++;
         });
-        
+
         if (overlap >= 3) {
           graphEdges.push({
-            source: note1.id,
-            target: note2.id,
+            source: noteIndex1.id,
+            target: noteIndex2.id,
             strength: Math.min(overlap / 10, 1),
             type: "similar",
           });
         }
       });
     });
-    
+
     return { nodes: graphNodes, edges: graphEdges };
-  }, [notes, dimensions]);
+  }, [noteIndexes, getNoteById, dimensions]);
 
   // Initialize nodes when graph data changes
   useEffect(() => {
@@ -474,7 +485,7 @@ const GraphView = ({ onSelectNote }: GraphViewProps) => {
       className="relative w-full h-full bg-linear-to-br from-zinc-900 via-zinc-800 to-zinc-900 rounded-xl overflow-hidden"
     >
       {/* Empty state */}
-      {notes.length === 0 && (
+      {noteIndexes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-700/50 flex items-center justify-center">
