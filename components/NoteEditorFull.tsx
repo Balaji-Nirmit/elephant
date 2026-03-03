@@ -6,7 +6,7 @@ import NotionEditor from "./NotionEditor";
 import FloatingToolbar from "./FloatingToolbar";
 import FindReplaceBar from "./FindReplaceBar";
 import TemplatesModal from "./TemplatesModal";
-import { Note, NoteBlock } from "@/contexts/NotesContext";
+import { Note, NoteBlock } from "@/lib/types";
 import { useHeadingIndex } from "@/hooks/useHeadingIndex";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useNoteExport } from "@/hooks/useNoteExport";

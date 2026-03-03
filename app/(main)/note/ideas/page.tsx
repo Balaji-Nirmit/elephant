@@ -6,11 +6,13 @@ import { motion } from "framer-motion";
 
 const IdeasPage = () => {
   const router = useRouter();
-  const { createNote } = useNotesContext();
+  // Changed: createNote -> createNoteIndex
+  const { createNoteIndex } = useNotesContext();
 
   const handleCreateNote = () => {
-    const note = createNote();
-    router.push(`/note/ideas/${note.id}`);
+    // createNoteIndex returns a string (the uuid)
+    const noteId = createNoteIndex();
+    router.push(`/note/ideas/${noteId}`);
   };
 
   return (

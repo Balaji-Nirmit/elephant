@@ -1,4 +1,4 @@
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 import { useMemo } from "react";
 
 export interface HeadingIndex {

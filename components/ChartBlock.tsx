@@ -49,7 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 
 interface ChartColumn {
   id: string;

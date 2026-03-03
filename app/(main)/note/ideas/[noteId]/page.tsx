@@ -3,8 +3,7 @@ import React, { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { useNotesContext } from "@/contexts/NotesContext";
 import NoteEditorFull from "@/components/NoteEditorFull";
-import { ArrowLeft } from "lucide-react";
-import { motion } from "framer-motion";
+import { useActiveNote } from "@/hooks/useActiveNotes";
 
 interface NoteEditorPageProps {
     params: Promise<{
@@ -15,20 +14,26 @@ interface NoteEditorPageProps {
 const NoteEditorPage = ({ params }: NoteEditorPageProps) => {
     const { noteId } = use(params);
     const router = useRouter();
-    const { isInitialized, noteIndexes, updateNote, deleteNote, getNoteById } = useNotesContext();
+
+    // 1. Metadata from Context (Titles, Folders, IDs)
+    const { isInitialized, noteIndexes, updateNoteIndex, deleteNote } = useNotesContext();
+    
+    // 2. Content from File System (The "Heavy" Note Blocks)
+    const { blocks, setBlocks, isLoading: isBlocksLoading } = useActiveNote(noteId);
+
     const [focusMode, setFocusMode] = useState(false);
     const [hasWaited, setHasWaited] = useState(false);
 
-    const activeNote = getNoteById(noteId);
+    // Find just the metadata for this note
     const noteIndex = noteIndexes.find((n) => n.id === noteId);
 
-    // Small delay to ensure state propagation after creation
+    // Small delay to ensure state propagation
     useEffect(() => {
         const timer = setTimeout(() => setHasWaited(true), 150);
         return () => clearTimeout(timer);
     }, [noteId]);
 
-    // Redirect if note doesn't exist
+    // Redirect if metadata is loaded and the note doesn't exist
     useEffect(() => {
         if (isInitialized && hasWaited && !noteIndex) {
             router.push("/note/ideas");
@@ -40,7 +45,7 @@ const NoteEditorPage = ({ params }: NoteEditorPageProps) => {
         router.push("/note/ideas");
     };
 
-    // Keyboard shortcut for focus mode (Escape to exit)
+    // Keyboard shortcut for focus mode
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === "Escape" && focusMode) {
@@ -51,29 +56,30 @@ const NoteEditorPage = ({ params }: NoteEditorPageProps) => {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [focusMode]);
 
-    if (!activeNote) {
-        if (!isInitialized || !hasWaited) {
-            return (
-                <div className="flex-1 flex items-center justify-center bg-background">
-                    <div className="animate-pulse text-muted-foreground">Loading note...</div>
-                </div>
-            );
-        }
+    // ASSEMBLY: Check if we have both the Index and the Blocks
+    if (!noteIndex || isBlocksLoading) {
         return (
             <div className="flex-1 flex items-center justify-center bg-background">
-                <div className="text-center">
-                    <p className="text-muted-foreground">Note not found</p>
-                </div>
+                <div className="animate-pulse text-muted-foreground">Opening atomic note...</div>
             </div>
         );
     }
 
     return (
         <div className="flex-1 h-full flex flex-col overflow-hidden relative">
-            {/* Editor */}
             <NoteEditorFull
-                note={activeNote}
-                onUpdate={(updates) => updateNote(noteId, updates)}
+                // Combine the metadata and blocks into one object for the component
+                note={{ ...noteIndex, blocks }}
+                onUpdate={(updates) => {
+                    // Update content atomically in the hook
+                    if (updates.blocks) {
+                        setBlocks(updates.blocks);
+                    }
+                    // Update metadata (title/tags) in the global context
+                    if (updates.title !== undefined || updates.tags !== undefined) {
+                        updateNoteIndex(noteId, updates);
+                    }
+                }}
                 focusMode={focusMode}
                 onToggleFocusMode={() => setFocusMode(!focusMode)}
             />

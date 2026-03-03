@@ -2,7 +2,7 @@
 import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { X, PlusCircle, GripVertical } from "lucide-react";
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 
 interface KanbanBlockProps {
   block: NoteBlock;

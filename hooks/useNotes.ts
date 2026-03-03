@@ -1,52 +1,13 @@
-import { StorageEngine } from "@/lib/storage-engine";
-import { Folder, Note, NoteBlock, NoteIndex } from "@/lib/types";
 import { useState, useEffect, useCallback } from "react";
-
-const NOTE_INDEXES_KEY = "elephant-note-indexes";
-const NOTE_BLOCKS_KEY = "elephant-note-blocks";
-const FOLDERS_KEY = "elephant-folders";
-
-const getStoredNoteIndexes = (): NoteIndex[] => {
-  try {
-    const stored = localStorage.getItem(NOTE_INDEXES_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-};
-
-const getStoredNoteBlocks = (): Record<string, NoteBlock[]> => {
-  try {
-    const stored = localStorage.getItem(NOTE_BLOCKS_KEY);
-    return stored ? JSON.parse(stored) : {};
-  } catch {
-    return {};
-  }
-};
-
-const getStoredFolders = (): Folder[] => {
-  try {
-    const stored = localStorage.getItem(FOLDERS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-};
+import { NoteIndex, Folder } from "@/lib/types"; // Ensure paths are correct
+import { StorageEngine } from "@/lib/storage-engine";
 
 export const useNotes = () => {
   const [noteIndexes, setNoteIndexes] = useState<NoteIndex[]>([]);
-  const [noteBlocks, setNoteBlocks] = useState<Record<string, NoteBlock[]>>({});
   const [folders, setFolders] = useState<Folder[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // // Initialize from localStorage on mount
-  // useEffect(() => {
-  //   setNoteIndexes(getStoredNoteIndexes());
-  //   setNoteBlocks(getStoredNoteBlocks());
-  //   setFolders(getStoredFolders());
-  //   setIsInitialized(true);
-  // }, []);
-
+  // 1. Initial Load: Only fetch the index and folder manifests
   useEffect(() => {
     const init = async () => {
       const [idx, fld] = await Promise.all([
@@ -60,116 +21,49 @@ export const useNotes = () => {
     init();
   }, []);
 
-  // Persist noteIndexes to localStorage
+  // 2. Auto-Save: Debounced sync of metadata only
   useEffect(() => {
-    if (isInitialized) {
-      // localStorage.setItem(NOTE_INDEXES_KEY, JSON.stringify(noteIndexes));
-      StorageEngine.saveIndexesDebounced(noteIndexes);
-    }
+    if (isInitialized) StorageEngine.saveIndexesDebounced(noteIndexes);
   }, [noteIndexes, isInitialized]);
 
-  // Persist noteBlocks to localStorage
   useEffect(() => {
-    if (isInitialized) {
-      localStorage.setItem(NOTE_BLOCKS_KEY, JSON.stringify(noteBlocks));
-    }
-  }, [noteBlocks, isInitialized]);
-
-  // Persist folders to localStorage
-  useEffect(() => {
-    if (isInitialized) {
-      // localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
-      StorageEngine.saveFoldersDebounced(folders);
-    }
+    if (isInitialized) StorageEngine.saveFoldersDebounced(folders);
   }, [folders, isInitialized]);
 
-  const createNote = useCallback((folderId: string | null = null): Note => {
-    const noteId = crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    // Create note index (metadata only)
-    const newNoteIndex: NoteIndex = {
-      id: noteId,
+  // 3. Actions
+  const createNoteIndex = useCallback((folderId: string | null = null): string => {
+    const id = crypto.randomUUID();
+    const newIndex: NoteIndex = {
+      id,
       title: "Untitled",
       tags: [],
       folderId,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
-
-    // Create initial blocks
-    const initialBlocks: NoteBlock[] = [
-      { id: crypto.randomUUID(), type: "text", content: "" }
-    ];
-
-    // Update state
-    setNoteIndexes((prev) => [newNoteIndex, ...prev]);
-    setNoteBlocks((prev) => ({ ...prev, [noteId]: initialBlocks }));
-
-    // Return full Note object for type compatibility
-    return {
-      id: noteId,
-      title: "Untitled",
-      blocks: initialBlocks,
-      tags: [],
-      folderId,
-      createdAt: now,
-      updatedAt: now,
-    };
+    setNoteIndexes(prev => [newIndex, ...prev]);
+    return id; // Return ID so router can navigate immediately
   }, []);
 
-  const updateNote = useCallback((id: string, updates: Partial<Note>) => {
-    const now = new Date().toISOString();
-
-    // Update noteIndex (metadata)
-    setNoteIndexes((prev) =>
-      prev.map((index) =>
-        index.id === id
-          ? {
-            ...index,
-            ...(updates.title && { title: updates.title }),
-            ...(updates.tags && { tags: updates.tags }),
-            ...(updates.folderId !== undefined && { folderId: updates.folderId }),
-            ...(updates.isPinned !== undefined && { isPinned: updates.isPinned }),
-            updatedAt: now,
-          }
-          : index
-      )
-    );
-
-    // Update blocks if provided
-    if (updates.blocks) {
-      setNoteBlocks((prev) => ({ ...prev, [id]: updates.blocks! }));
-    }
+  const updateNoteIndex = useCallback((id: string, updates: Partial<NoteIndex>) => {
+    setNoteIndexes(prev => prev.map(n => 
+      n.id === id ? { ...n, ...updates, updatedAt: new Date().toISOString() } : n
+    ));
   }, []);
 
   const deleteNote = useCallback((id: string) => {
-    setNoteIndexes((prev) => prev.filter((index) => index.id !== id));
-    setNoteBlocks((prev) => {
-      const { [id]: _, ...rest } = prev;
-      return rest;
-    });
+    setNoteIndexes(prev => prev.filter(n => n.id !== id));
+    StorageEngine.deleteNoteFile(id); // Physically wipe content from disk
   }, []);
 
-  const createFolder = useCallback((name: string): Folder => {
-    const colors = ["green", "blue", "purple", "orange", "pink"];
+  const createFolder = useCallback((name: string) => {
     const newFolder: Folder = {
       id: crypto.randomUUID(),
       name,
-      color: colors[Math.floor(Math.random() * colors.length)],
+      color: "blue",
       createdAt: new Date().toISOString(),
     };
-    setFolders((prev) => [...prev, newFolder]);
-    return newFolder;
-  }, []);
-
-  const deleteFolder = useCallback((id: string) => {
-    setFolders((prev) => prev.filter((folder) => folder.id !== id));
-    setNoteIndexes((prev) =>
-      prev.map((index) =>
-        index.folderId === id ? { ...index, folderId: null } : index
-      )
-    );
+    setFolders(prev => [...prev, newFolder]);
   }, []);
 
   const getRecentNoteIndexes = useCallback(
@@ -188,66 +82,27 @@ export const useNotes = () => {
     [noteIndexes]
   );
 
-  // Get full Note by combining index + blocks
-  const getNoteById = useCallback(
-    (id: string): Note | undefined => {
-      const index = noteIndexes.find((index) => index.id === id);
-      if (!index) return undefined;
+  const deleteFolder = useCallback((id: string) => {
+    // 1. Remove the folder itself
+    setFolders((prev) => prev.filter((folder) => folder.id !== id));
+    // 2. Orphan the notes that were in that folder (set folderId to null)
+    setNoteIndexes((prev) =>
+      prev.map((index) =>
+        index.folderId === id ? { ...index, folderId: null } : index
+      )
+    );
+  }, []);
 
-      const blocks = noteBlocks[id] || [];
-
-      return {
-        id: index.id,
-        title: index.title,
-        blocks,
-        tags: index.tags,
-        folderId: index.folderId,
-        createdAt: index.createdAt,
-        updatedAt: index.updatedAt,
-        isPinned: index.isPinned,
-      };
-    },
-    [noteIndexes, noteBlocks]
-  );
-
-  // Search across both indexes and blocks
-  const searchNotes = useCallback(
-    (query: string) => {
-      const lower = query.toLowerCase();
-      return noteIndexes.filter((index) => {
-        const matchesTitle = index.title.toLowerCase().includes(lower);
-        const blocks = noteBlocks[index.id] || [];
-        const matchesContent = blocks.some((block) =>
-          block.content.toLowerCase().includes(lower)
-        );
-        return matchesTitle || matchesContent;
-      });
-    },
-    [noteIndexes, noteBlocks]
-  );
-
-  // Get blocks for a specific note
-  const getBlocksForNote = useCallback(
-    (noteId: string): NoteBlock[] => {
-      return noteBlocks[noteId] || [];
-    },
-    [noteBlocks]
-  );
-
-  return {
-    isInitialized,
-    noteIndexes,
-    noteBlocks,
-    folders,
-    createNote,
-    updateNote,
+  return { 
+    isInitialized, 
+    noteIndexes, 
+    folders, 
+    createNoteIndex, 
+    updateNoteIndex, 
     deleteNote,
     createFolder,
-    deleteFolder,
     getRecentNoteIndexes,
-    getNoteIndexesForFolder,
-    searchNotes,
-    getNoteById,
-    getBlocksForNote,
+    deleteFolder,
+    getNoteIndexesForFolder
   };
 };

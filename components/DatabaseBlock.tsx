@@ -12,7 +12,7 @@ import {
   GripVertical,
   BarChart3,
 } from "lucide-react";
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 
 interface DatabaseBlockProps {
   block: NoteBlock;

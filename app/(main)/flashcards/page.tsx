@@ -1,9 +1,9 @@
 "use client"
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Play, Layers, BookOpen, Trash2, Edit2, Check, X } from "lucide-react";
-import { useNotesContext, FlashcardItem } from "@/contexts/NotesContext";
+import { Plus, Play, Layers, Trash2, Edit2, Check, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { FlashcardItem } from "@/lib/types";
 import FlashcardStudyMode from "@/components/FlashcardStudyMode";
 
 interface FlashcardDeck {
@@ -15,7 +15,9 @@ interface FlashcardDeck {
 
 const DECKS_KEY = "elephant-flashcard-decks";
 
+// Helper to get stored decks from localStorage
 const getStoredDecks = (): FlashcardDeck[] => {
+  if (typeof window === "undefined") return [];
   try {
     const stored = localStorage.getItem(DECKS_KEY);
     return stored ? JSON.parse(stored) : [];
@@ -38,7 +40,7 @@ const cardColors = [
 ];
 
 const FlashcardsPage = () => {
-  const { noteIndexes, getNoteById } = useNotesContext();
+  // We no longer need noteIndexes or getNoteById here
   const [decks, setDecks] = useState<FlashcardDeck[]>(getStoredDecks);
   const [studyMode, setStudyMode] = useState<{ cards: FlashcardItem[]; title: string } | null>(null);
   const [editingDeckId, setEditingDeckId] = useState<string | null>(null);
@@ -46,46 +48,10 @@ const FlashcardsPage = () => {
   const [newDeckName, setNewDeckName] = useState("");
   const [showNewDeck, setShowNewDeck] = useState(false);
 
-  // Group flashcards by notes
-  interface NoteWithFlashcards {
-    id: string;
-    title: string;
-    cards: FlashcardItem[];
-  }
-
-  const notesWithFlashcards = useMemo(() => {
-    const grouped: NoteWithFlashcards[] = [];
-    noteIndexes.forEach(noteIndex => {
-      const fullNote = getNoteById(noteIndex.id);
-      if (!fullNote) return;
-
-      const noteCards: FlashcardItem[] = [];
-      fullNote.blocks.forEach(block => {
-        if (block.type === "flashcard" && block.flashcards) {
-          noteCards.push(...block.flashcards);
-        }
-      });
-      if (noteCards.length > 0) {
-        grouped.push({
-          id: noteIndex.id,
-          title: noteIndex.title || "Untitled",
-          cards: noteCards,
-        });
-      }
-    });
-    return grouped;
-  }, [noteIndexes, getNoteById]);
-
-  // Collect all flashcards from notes (for study all and count)
-  const allNoteFlashcards = useMemo(() => {
-    return notesWithFlashcards.flatMap(n => n.cards);
-  }, [notesWithFlashcards]);
-
-  // Get all flashcards (from notes + independent decks)
-  const allFlashcards = useMemo(() => {
-    const deckCards = decks.flatMap(deck => deck.cards);
-    return [...allNoteFlashcards, ...deckCards];
-  }, [allNoteFlashcards, decks]);
+  // Total cards from independent decks only
+  const totalCardsCount = useMemo(() => {
+    return decks.reduce((acc, d) => acc + d.cards.length, 0);
+  }, [decks]);
 
   const createDeck = () => {
     if (!newDeckName.trim()) return;
@@ -188,102 +154,18 @@ const FlashcardsPage = () => {
               <div>
                 <h1 className="text-3xl font-bold text-foreground">Flashcards</h1>
                 <p className="text-muted-foreground mt-1">
-                  {allFlashcards.length} cards total • {allNoteFlashcards.length} from notes • {decks.reduce((acc, d) => acc + d.cards.length, 0)} independent
+                  {totalCardsCount} cards across {decks.length} decks
                 </p>
               </div>
             </div>
           </motion.div>
-
-          {/* Global Study Button */}
-          {allFlashcards.length > 0 && (
-            <motion.button
-              onClick={() => setStudyMode({ cards: allFlashcards, title: "All Flashcards" })}
-              className="w-full p-6 rounded-2xl bg-linear-to-r from-primary/10 to-primary/5 border border-primary/20 hover:border-primary/40 transition-colors group"
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-primary/20 group-hover:bg-primary/30 transition-colors">
-                  <Play className="w-6 h-6 text-primary" />
-                </div>
-                <div className="text-left flex-1">
-                  <h3 className="text-lg font-semibold text-foreground">Study All Cards</h3>
-                  <p className="text-sm text-muted-foreground">Review all {allFlashcards.length} flashcards from notes and decks</p>
-                </div>
-                <Layers className="w-5 h-5 text-muted-foreground" />
-              </div>
-            </motion.button>
-          )}
-
-          {/* Notes Flashcards Section */}
-          {allNoteFlashcards.length > 0 && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-muted-foreground" />
-                  <h2 className="text-lg font-semibold text-foreground">From Notes</h2>
-                  <span className="text-sm text-muted-foreground">({allNoteFlashcards.length} cards)</span>
-                </div>
-                <motion.button
-                  onClick={() => setStudyMode({ cards: allNoteFlashcards, title: "Notes Flashcards" })}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-sm"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Play className="w-4 h-4" />
-                  Study All
-                </motion.button>
-              </div>
-
-              {/* Notes Grid */}
-              <div className="space-y-5">
-                {notesWithFlashcards.map((noteGroup) => (
-                  <motion.div
-                    key={noteGroup.id}
-                    className="space-y-3"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    {/* Note Title and Study Button */}
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-foreground text-base">{noteGroup.title}</h3>
-                      <motion.button
-                        onClick={() => setStudyMode({ cards: noteGroup.cards, title: noteGroup.title })}
-                        className="flex items-center gap-2 px-2 py-1 rounded-lg bg-muted hover:bg-muted/80 text-xs"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        <Play className="w-3 h-3" />
-                        Study ({noteGroup.cards.length})
-                      </motion.button>
-                    </div>
-
-                    {/* Cards Grid for this Note */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                      {noteGroup.cards.map((card) => (
-                        <motion.div
-                          key={card.id}
-                          className={`p-3 rounded-xl border-2 ${getCardStyle(card.color)} min-h-20 flex items-center justify-center`}
-                          whileHover={{ scale: 1.02 }}
-                        >
-                          <p className="text-sm text-center line-clamp-3">{card.content || "Empty card"}</p>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Independent Decks Section */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Layers className="w-5 h-5 text-muted-foreground" />
-                <h2 className="text-lg font-semibold text-foreground">Independent Decks</h2>
+                <h2 className="text-lg font-semibold text-foreground">Your Decks</h2>
               </div>
               <motion.button
                 onClick={() => setShowNewDeck(true)}
@@ -315,16 +197,10 @@ const FlashcardsPage = () => {
                       className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
                       autoFocus
                     />
-                    <button
-                      onClick={createDeck}
-                      className="p-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90"
-                    >
+                    <button onClick={createDeck} className="p-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90">
                       <Check className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => { setShowNewDeck(false); setNewDeckName(""); }}
-                      className="p-1.5 rounded-lg bg-muted-foreground/20 hover:bg-muted-foreground/30"
-                    >
+                    <button onClick={() => { setShowNewDeck(false); setNewDeckName(""); }} className="p-1.5 rounded-lg bg-muted-foreground/20 hover:bg-muted-foreground/30">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -341,7 +217,6 @@ const FlashcardsPage = () => {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
-                  {/* Deck Header */}
                   <div className="flex items-center justify-between mb-3">
                     {editingDeckId === deck.id ? (
                       <div className="flex items-center gap-2 flex-1">
@@ -413,16 +288,10 @@ const FlashcardsPage = () => {
                           className="w-full h-full bg-transparent outline-none text-sm resize-none placeholder:text-muted-foreground/50"
                         />
                         <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                          <button
-                            onClick={() => changeCardColor(deck.id, card.id)}
-                            className="p-1 rounded-full bg-background/80 hover:bg-background"
-                          >
+                          <button onClick={() => changeCardColor(deck.id, card.id)} className="p-1 rounded-full bg-background/80 hover:bg-background">
                             <div className={`w-3 h-3 rounded-full ${cardColors.find(c => c.name === card.color)?.bg || 'bg-yellow-200'}`} />
                           </button>
-                          <button
-                            onClick={() => deleteCard(deck.id, card.id)}
-                            className="p-1 rounded-full bg-background/80 hover:bg-destructive/20"
-                          >
+                          <button onClick={() => deleteCard(deck.id, card.id)} className="p-1 rounded-full bg-background/80 hover:bg-destructive/20">
                             <X className="w-3 h-3 text-destructive" />
                           </button>
                         </div>
@@ -441,13 +310,9 @@ const FlashcardsPage = () => {
               ))}
 
               {decks.length === 0 && !showNewDeck && (
-                <motion.div
-                  className="text-center py-12"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
+                <motion.div className="text-center py-12" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <Layers className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-muted-foreground mb-4">No independent decks yet</p>
+                  <p className="text-muted-foreground mb-4">No decks yet</p>
                   <motion.button
                     onClick={() => setShowNewDeck(true)}
                     className="px-4 py-2 rounded-lg bg-primary text-primary-foreground"

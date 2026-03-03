@@ -6,10 +6,21 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useNotesContext } from "@/contexts/NotesContext";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { NoteIndex } from "@/lib/types";
 
 const FolderPage = () => {
   const router = useRouter();
-  const { isInitialized, folders, noteIndexes, createFolder, deleteFolder, createNote, getNoteIndexesForFolder, getNoteById } = useNotesContext();
+  // Mapping new context methods
+  const { 
+    isInitialized, 
+    folders, 
+    noteIndexes, 
+    createFolder, 
+    deleteFolder, 
+    createNoteIndex, // Changed from createNote
+    getNoteIndexesForFolder 
+  } = useNotesContext();
+  
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
@@ -23,6 +34,7 @@ const FolderPage = () => {
   };
 
   const getNotesInFolder = (folderId: string) => {
+    // getNoteIndexesForFolder is already optimized for metadata only
     return getNoteIndexesForFolder(folderId);
   };
 
@@ -148,8 +160,8 @@ const FolderPage = () => {
                 <p className="text-muted-foreground mb-4">No notes in this folder</p>
                 <motion.button
                   onClick={() => {
-                    const note = createNote(selectedFolder?.id || null);
-                    router.push(`/note/ideas/${note.id}`);
+                    const noteId = createNoteIndex(selectedFolder?.id || null);
+                    router.push(`/note/ideas/${noteId}`);
                   }}
                   className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium"
                   whileHover={{ scale: 1.02 }}
@@ -164,8 +176,8 @@ const FolderPage = () => {
                   <h3 className="text-lg font-semibold text-foreground">Notes</h3>
                   <motion.button
                     onClick={() => {
-                      const note = createNote(selectedFolder?.id || null);
-                      router.push(`/note/ideas/${note.id}`);
+                      const noteId = createNoteIndex(selectedFolder?.id || null);
+                      router.push(`/note/ideas/${noteId}`);
                     }}
                     className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground font-medium"
                     whileHover={{ scale: 1.02 }}
@@ -176,21 +188,22 @@ const FolderPage = () => {
                   </motion.button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {folderNotes.map((noteIndex, index) => {
-                    const fullNote = getNoteById(noteIndex.id);
+                  {folderNotes.map((noteIndex: NoteIndex, index: number) => {
+                    // Removed getNoteById call to keep the list lightweight
                     return (
                       <Link key={noteIndex.id} href={`/note/ideas/${noteIndex.id}`}>
                         <motion.div
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: index * 0.05 }}
-                          className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"
+                          className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all h-full"
                         >
                           <h3 className="font-medium text-foreground truncate mb-2">
                             {noteIndex.title || "Untitled"}
                           </h3>
-                          <p className="text-sm text-muted-foreground line-clamp-2">
-                            {fullNote?.blocks.find((b) => b.content)?.content || "No content"}
+                          {/* Showing metadata instead of blocks for performance */}
+                          <p className="text-xs text-muted-foreground">
+                            Modified {new Date(noteIndex.updatedAt).toLocaleDateString()}
                           </p>
                         </motion.div>
                       </Link>

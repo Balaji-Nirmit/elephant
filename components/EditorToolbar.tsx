@@ -30,7 +30,7 @@ import {
   Sparkles,
   RemoveFormatting,
 } from "lucide-react";
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 import { useRichTextFormat, FormatState } from "@/hooks/useRichTextFormat";
 
 interface EditorToolbarProps {

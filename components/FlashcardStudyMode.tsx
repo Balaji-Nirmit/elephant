@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, Shuffle, RotateCcw, Lightbulb, Check } from "lucide-react";
-import { FlashcardItem } from "@/hooks/useNotes";
+import { FlashcardItem } from "@/lib/types";
 
 interface FlashcardStudyModeProps {
   flashcards: FlashcardItem[];

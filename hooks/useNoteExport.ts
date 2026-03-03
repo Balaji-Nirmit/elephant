@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Note, NoteBlock } from "@/hooks/useNotes";
+import { Note, NoteBlock } from "@/lib/types";
 
 type ExportFormat = "markdown" | "text" | "html";
 

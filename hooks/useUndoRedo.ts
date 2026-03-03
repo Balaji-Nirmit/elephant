@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 
 interface HistoryState {
   blocks: NoteBlock[];

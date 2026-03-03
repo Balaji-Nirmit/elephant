@@ -13,7 +13,7 @@ import {
   Copy,
   ChevronDown,
 } from "lucide-react";
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 
 interface CellFormatting {
   bold?: boolean;

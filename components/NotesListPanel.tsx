@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Trash2, Search, Paperclip, Plus, X } from "lucide-react";
-import { Note, NoteIndex } from "@/contexts/NotesContext";
+import { Note, NoteIndex } from "@/lib/types";
 import { formatDistanceToNow } from "date-fns";
 import { SidebarTrigger } from "./ui/sidebar";
 

@@ -47,7 +47,7 @@ import {
   Volume2,
   ZoomIn,
 } from "lucide-react";
-import { NoteBlock, FlashcardItem } from "@/contexts/NotesContext";
+import { NoteBlock, FlashcardItem } from "@/lib/types";
 import ImageLightbox from "./ImageLightbox";
 import MindMap from "./MindMap";
 import FlashcardBlock from "./FlashcardBlock";

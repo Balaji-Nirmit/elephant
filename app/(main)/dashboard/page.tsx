@@ -1,15 +1,25 @@
 'use client'
 import { motion } from "framer-motion";
-import { StickyNote, Clock, Star, Plus, FolderOpen, ArrowRight } from "lucide-react";
+import { StickyNote, Clock, FolderOpen, Plus, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useNotesContext } from "@/contexts/NotesContext";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
+import { NoteIndex } from "@/lib/types"; // Import your type
 
 const Dashboard = () => {
   const router = useRouter();
-  const { isInitialized, noteIndexes, folders, getRecentNoteIndexes, createNote, getNoteById } = useNotesContext();
-  const recentNoteIndexes = getRecentNoteIndexes(6);
+  // Changed: createNote -> createNoteIndex, searchNotes -> searchNoteIndexes
+  // Removed: getNoteById (as it's heavy and context doesn't hold blocks)
+  const { 
+    isInitialized, 
+    noteIndexes, 
+    folders, 
+    getRecentNoteIndexes, 
+    createNoteIndex 
+  } = useNotesContext();
+  
+  const recentNoteIndexes = getRecentNoteIndexes ? getRecentNoteIndexes(6) : [];
 
   const stats = [
     { label: "Total Notes", value: noteIndexes.length, icon: StickyNote, color: "primary" },
@@ -17,8 +27,9 @@ const Dashboard = () => {
   ];
 
   const handleQuickNote = () => {
-    const note = createNote();
-    router.push(`/note/ideas/${note.id}`);
+    // Changed: createNoteIndex returns just the ID now
+    const noteId = createNoteIndex();
+    router.push(`/note/ideas/${noteId}`);
   };
 
   if (!isInitialized) {
@@ -47,26 +58,21 @@ const Dashboard = () => {
         </motion.div>
 
         {/* Stats Cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
-        >
-          {stats.map((stat, index) => (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          {stats.map((stat) => (
             <div
               key={stat.label}
               className="bg-card rounded-xl p-4 border border-border shadow-sm"
             >
-              <div className={`w-10 h-10 rounded-lg bg-${stat.color}/10 flex items-center justify-center mb-3`}>
-                <stat.icon className={`w-5 h-5 text-${stat.color}`} />
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 bg-primary/10`}>
+                <stat.icon className={`w-5 h-5 text-primary`} />
               </div>
               <p className="text-2xl font-bold text-foreground">{stat.value}</p>
               <p className="text-sm text-muted-foreground">{stat.label}</p>
             </div>
           ))}
 
-          {/* Quick Actions */}
+          {/* Quick Action Button */}
           <motion.button
             onClick={handleQuickNote}
             className="bg-primary/10 hover:bg-primary/20 rounded-xl p-4 border border-primary/20 flex flex-col items-center justify-center gap-2 transition-colors"
@@ -81,7 +87,7 @@ const Dashboard = () => {
 
           <Link href="/note/ideas">
             <motion.div
-              className="bg-card hover:bg-muted rounded-xl p-4 border border-border flex flex-col items-center justify-center gap-2 transition-colors cursor-pointer"
+              className="bg-card hover:bg-muted rounded-xl p-4 border border-border flex flex-col items-center justify-center gap-2 transition-colors cursor-pointer h-full"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -91,7 +97,7 @@ const Dashboard = () => {
               <p className="text-sm font-medium text-muted-foreground">All Notes</p>
             </motion.div>
           </Link>
-        </motion.div>
+        </div>
 
         {/* Recent Notes */}
         <motion.div
@@ -124,25 +130,29 @@ const Dashboard = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recentNoteIndexes.map((noteIndex, index) => {
-                const fullNote = getNoteById(noteIndex.id);
+              {recentNoteIndexes.map((noteIndex: NoteIndex, index: number) => {
+                // Note: We don't fetch full blocks here to maintain "Atomic" performance.
+                // Dashboard only shows metadata.
                 return (
                   <Link key={noteIndex.id} href={`/note/ideas/${noteIndex.id}`}>
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.1 + index * 0.05 }}
-                      className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"
+                      className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all h-full"
                     >
                       <h3 className="font-medium text-foreground truncate mb-2">
                         {noteIndex.title || "Untitled"}
                       </h3>
-                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                        {fullNote?.blocks.find((b) => b.content)?.content || "No content"}
+                      
+                      {/* Substituted preview for a "Metadata only" view */}
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Last edited {formatDistanceToNow(new Date(noteIndex.updatedAt), { addSuffix: true })}
                       </p>
+
                       <div className="flex items-center justify-between">
-                        <div className="flex gap-1">
-                          {noteIndex.tags.slice(0, 2).map((tag) => (
+                        <div className="flex flex-wrap gap-1">
+                          {noteIndex.tags?.slice(0, 2).map((tag: any) => (
                             <span
                               key={tag.id}
                               className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary"
@@ -151,9 +161,6 @@ const Dashboard = () => {
                             </span>
                           ))}
                         </div>
-                        <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(noteIndex.updatedAt), { addSuffix: true })}
-                        </span>
                       </div>
                     </motion.div>
                   </Link>

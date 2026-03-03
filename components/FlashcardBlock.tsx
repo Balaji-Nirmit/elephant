@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, X, Lightbulb, Shuffle, GraduationCap } from "lucide-react";
-import { FlashcardItem } from "@/hooks/useNotes";
+import { FlashcardItem } from "@/lib/types";
 
 interface FlashcardBlockProps {
   flashcards: FlashcardItem[];

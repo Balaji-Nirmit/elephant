@@ -8,11 +8,15 @@ const IdeasLayout = ({ children }: { children: React.ReactNode }) => {
     const router = useRouter();
     const params = useParams();
     const noteId = params.noteId as string;
-    const { isInitialized, noteIndexes, createNote, deleteNote, getNoteById } = useNotesContext();
+    
+    // Changed: createNote -> createNoteIndex
+    // Removed: getNoteById (Context no longer stores blocks)
+    const { isInitialized, noteIndexes, createNoteIndex, deleteNote } = useNotesContext();
 
     const handleCreateNote = () => {
-        const note = createNote();
-        router.push(`/note/ideas/${note.id}`);
+        // Returns string ID
+        const newNoteId = createNoteIndex();
+        router.push(`/note/ideas/${newNoteId}`);
     };
 
     const handleSelectNote = (id: string) => {
@@ -36,14 +40,15 @@ const IdeasLayout = ({ children }: { children: React.ReactNode }) => {
 
     return (
         <div className="flex-1 h-full flex overflow-hidden">
-            {/* Notes List - Always visible on desktop, shown on mobile when no note is active */}
+            {/* Notes List Panel */}
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}
-                className={`w-full md:w-80 shrink-0 border-r border-border bg-card ${noteId ? "hidden md:flex" : "flex"
-                    }`}
-            >
+                className={`w-full md:w-80 shrink-0 border-r border-border bg-card ${
+                    noteId ? "hidden md:flex" : "flex"
+                }`}
+            >   
                 <NotesListPanel
                     title="All Ideas"
                     noteIndexes={noteIndexes}
@@ -51,13 +56,15 @@ const IdeasLayout = ({ children }: { children: React.ReactNode }) => {
                     onSelectNote={handleSelectNote}
                     onDeleteNote={handleDeleteNote}
                     onCreateNote={handleCreateNote}
-                    getNoteById={getNoteById}
+                    // We no longer pass getNoteById. 
+                    // NotesListPanel should render based on noteIndexes (metadata).
                 />
             </motion.div>
 
-            {/* Main Content Area (Editor or Empty State) - Always visible on desktop, shown on mobile when a note is active */}
-            <div className={`flex-1 overflow-hidden h-full ${noteId ? "flex" : "hidden md:flex"
-                }`}>
+            {/* Main Content Area */}
+            <div className={`flex-1 overflow-hidden h-full ${
+                noteId ? "flex" : "hidden md:flex"
+            }`}>
                 {children}
             </div>
         </div>
