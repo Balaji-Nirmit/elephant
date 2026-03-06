@@ -1,4 +1,4 @@
-import { NoteBlock } from "@/contexts/NotesContext";
+import { NoteBlock } from "@/lib/types";
 
 // Make content optional for templates since many block types don't need it
 type TemplateBlock = Partial<Omit<NoteBlock, "id">> & { type: NoteBlock["type"] };
