@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Network, ArrowLeft } from "lucide-react";
 import GraphView from "@/components/GraphView";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const GraphPage = () => {
   const router = useRouter();
@@ -19,14 +20,7 @@ const GraphPage = () => {
         className="px-6 py-4 border-b border-border bg-card/50 backdrop-blur-sm"
       >
         <div className="flex items-center gap-4">
-          <motion.button
-            onClick={() => router.push("/dashboard")}
-            className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </motion.button>
+            <SidebarTrigger/>
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
               <Network className="w-5 h-5 text-primary" />

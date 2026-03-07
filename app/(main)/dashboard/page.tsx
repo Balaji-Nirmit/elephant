@@ -5,29 +5,39 @@ import { useRouter } from "next/navigation";
 import { useNotesContext } from "@/contexts/NotesContext";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
-import { NoteIndex } from "@/lib/types"; // Import your type
+import { NoteIndex } from "@/lib/types";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const Dashboard = () => {
+
   const router = useRouter();
-  // Changed: createNote -> createNoteIndex, searchNotes -> searchNoteIndexes
-  // Removed: getNoteById (as it's heavy and context doesn't hold blocks)
-  const { 
-    isInitialized, 
-    noteIndexes, 
-    folders, 
-    getRecentNoteIndexes, 
-    createNoteIndex 
+
+  const {
+    isInitialized,
+    noteIndexes,
+    folders,
+    getRecentNoteIndexes,
+    createNoteIndex
   } = useNotesContext();
-  
-  const recentNoteIndexes = getRecentNoteIndexes ? getRecentNoteIndexes(6) : [];
+
+  const recentNoteIndexes = getRecentNoteIndexes
+    ? getRecentNoteIndexes(6)
+    : [];
 
   const stats = [
-    { label: "Total Notes", value: noteIndexes.length, icon: StickyNote, color: "primary" },
-    { label: "Folders", value: folders.length, icon: FolderOpen, color: "accent" },
+    {
+      label: "Total Notes",
+      value: noteIndexes.length,
+      icon: StickyNote,
+    },
+    {
+      label: "Folders",
+      value: folders.length,
+      icon: FolderOpen,
+    },
   ];
 
   const handleQuickNote = () => {
-    // Changed: createNoteIndex returns just the ID now
     const noteId = createNoteIndex();
     router.push(`/note/ideas/${noteId}`);
   };
@@ -35,137 +45,153 @@ const Dashboard = () => {
   if (!isInitialized) {
     return (
       <div className="flex-1 h-full flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground">Loading dashboard...</div>
+        <div className="animate-pulse text-muted-foreground">
+          Loading dashboard...
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex-1 h-full bg-background overflow-y-auto scrollbar-thin">
-      <div className="max-w-6xl mx-auto p-8">
-        {/* Welcome Header */}
+      <div className="max-w-7xl mx-auto p-2 sm:p-8">
+        {/* Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="flex items-center justify-between mb-10 sticky top-0 z-20 backdrop-blur-md bg-background/70 border-b border-border pb-4 pt-2"
         >
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            Welcome back! 👋
-          </h1>
-          <p className="text-muted-foreground">
-            Here's what's happening with your notes
-          </p>
-        </motion.div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-card rounded-xl p-4 border border-border shadow-sm"
-            >
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 bg-primary/10`}>
-                <stat.icon className={`w-5 h-5 text-primary`} />
-              </div>
-              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-              <p className="text-sm text-muted-foreground">{stat.label}</p>
+          <div className="flex items-center gap-4">
+            <SidebarTrigger />
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">
+                Welcome back! 👋
+              </h1>
+              <p className="text-muted-foreground text-sm">
+                Here's what's happening with your notes
+              </p>
             </div>
+          </div>
+        </motion.div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+          {stats.map((stat) => (
+            <motion.div
+              key={stat.label}
+              whileHover={{ y: -4 }}
+              transition={{ type: "spring", stiffness: 200 }}
+              className="bg-card rounded-xl p-5 border border-border shadow-sm hover:shadow-md transition-all"
+            >
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-3 bg-linear-to-br from-primary/20 to-primary/5 border border-primary/10">
+                <stat.icon className="w-5 h-5 text-primary" />
+              </div>
+              <p className="text-2xl font-bold text-foreground">
+                {stat.value}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {stat.label}
+              </p>
+            </motion.div>
           ))}
-
-          {/* Quick Action Button */}
+          {/* Quick Note */}
           <motion.button
             onClick={handleQuickNote}
-            className="bg-primary/10 hover:bg-primary/20 rounded-xl p-4 border border-primary/20 flex flex-col items-center justify-center gap-2 transition-colors"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={{ y: -4 }}
+            whileTap={{ scale: 0.97 }}
+            className="bg-linear-to-br from-primary/15 to-primary/5 hover:from-primary/20 hover:to-primary/10 rounded-xl p-5 border border-primary/20 shadow-sm flex flex-col items-center justify-center gap-2 transition-all"
           >
-            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-primary/20 flex items-center justify-center">
               <Plus className="w-5 h-5 text-primary" />
             </div>
-            <p className="text-sm font-medium text-primary">Quick Note</p>
+            <p className="text-sm font-medium text-primary">
+              Quick Note
+            </p>
           </motion.button>
-
+          {/* All Notes */}
           <Link href="/note/ideas">
             <motion.div
-              className="bg-card hover:bg-muted rounded-xl p-4 border border-border flex flex-col items-center justify-center gap-2 transition-colors cursor-pointer h-full"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.97 }}
+              className="bg-card hover:bg-muted rounded-xl p-5 border border-border flex flex-col items-center justify-center gap-2 transition-all cursor-pointer h-full"
             >
-              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+              <div className="w-11 h-11 rounded-xl bg-muted flex items-center justify-center">
                 <ArrowRight className="w-5 h-5 text-muted-foreground" />
               </div>
-              <p className="text-sm font-medium text-muted-foreground">All Notes</p>
+              <p className="text-sm font-medium text-muted-foreground">
+                All Notes
+              </p>
             </motion.div>
           </Link>
         </div>
-
         {/* Recent Notes */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <Clock className="w-5 h-5 text-muted-foreground" />
               Recent Notes
             </h2>
-            <Link href="/note/ideas" className="text-sm text-primary hover:underline">
+            <Link
+              href="/note/ideas"
+              className="text-sm text-primary hover:underline"
+            >
               View all
             </Link>
           </div>
-
           {recentNoteIndexes.length === 0 ? (
-            <div className="bg-card rounded-xl border border-border p-8 text-center">
-              <StickyNote className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground mb-4">No notes yet</p>
+            <div className="bg-card rounded-xl border border-border p-10 text-center flex flex-col items-center">
+              <StickyNote className="w-14 h-14 text-muted-foreground/60 mb-4" />
+              <p className="text-muted-foreground mb-5">
+                No notes yet
+              </p>
               <motion.button
                 onClick={handleQuickNote}
-                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                className="px-5 py-2 rounded-lg bg-primary text-primary-foreground font-medium"
               >
                 Create your first note
               </motion.button>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recentNoteIndexes.map((noteIndex: NoteIndex, index: number) => {
-                // Note: We don't fetch full blocks here to maintain "Atomic" performance.
-                // Dashboard only shows metadata.
-                return (
-                  <Link key={noteIndex.id} href={`/note/ideas/${noteIndex.id}`}>
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.1 + index * 0.05 }}
-                      className="bg-card rounded-xl border border-border p-4 cursor-pointer hover:border-primary/50 hover:shadow-md transition-all h-full"
-                    >
-                      <h3 className="font-medium text-foreground truncate mb-2">
-                        {noteIndex.title || "Untitled"}
-                      </h3>
-                      
-                      {/* Substituted preview for a "Metadata only" view */}
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Last edited {formatDistanceToNow(new Date(noteIndex.updatedAt), { addSuffix: true })}
-                      </p>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex flex-wrap gap-1">
-                          {noteIndex.tags?.slice(0, 2).map((tag: any) => (
-                            <span
-                              key={tag.id}
-                              className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary"
-                            >
-                              {tag.label}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </motion.div>
-                  </Link>
-                );
-              })}
+              {recentNoteIndexes.map((noteIndex: NoteIndex, index: number) => (
+                <Link
+                  key={noteIndex.id}
+                  href={`/note/ideas/${noteIndex.id}`}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.05 * index }}
+                    whileHover={{ y: -3 }}
+                    className="group bg-card rounded-xl border border-border p-5 cursor-pointer hover:border-primary/40 hover:shadow-lg transition-all h-full"
+                  >
+                    <h3 className="font-medium text-foreground truncate mb-2 group-hover:text-primary transition-colors">
+                      {noteIndex.title || "Untitled"}
+                    </h3>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Last edited{" "}
+                      {formatDistanceToNow(
+                        new Date(noteIndex.updatedAt),
+                        { addSuffix: true }
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {noteIndex.tags?.slice(0, 2).map((tag: any) => (
+                        <span
+                          key={tag.id}
+                          className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary"
+                        >
+                          {tag.label}
+                        </span>
+                      ))}
+                    </div>
+                  </motion.div>
+                </Link>
+              ))}
             </div>
           )}
         </motion.div>
@@ -173,5 +199,4 @@ const Dashboard = () => {
     </div>
   );
 };
-
 export default Dashboard;

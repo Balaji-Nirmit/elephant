@@ -5,6 +5,7 @@ import { Plus, Play, Layers, Trash2, Edit2, Check, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FlashcardItem } from "@/lib/types";
 import FlashcardStudyMode from "@/components/FlashcardStudyMode";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 interface FlashcardDeck {
   id: string;
@@ -143,7 +144,7 @@ const FlashcardsPage = () => {
   return (
     <div className="flex-1 flex flex-col bg-background overflow-y-auto scrollbar-thin">
       <ScrollArea className="flex-1">
-        <div className="max-w-6xl mx-auto p-8 space-y-8">
+        <div className="max-w-7xl mx-auto p-2 sm:p-8 space-y-8">
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -151,11 +152,14 @@ const FlashcardsPage = () => {
             className="mb-6"
           >
             <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-foreground">Flashcards</h1>
-                <p className="text-muted-foreground mt-1">
-                  {totalCardsCount} cards across {decks.length} decks
-                </p>
+              <div className="flex items-center gap-4">
+                <SidebarTrigger />
+                <div>
+                  <h1 className="text-3xl font-bold text-foreground">Flashcards</h1>
+                  <p className="text-muted-foreground mt-1">
+                    {totalCardsCount} cards across {decks.length} decks
+                  </p>
+                </div>
               </div>
             </div>
           </motion.div>
