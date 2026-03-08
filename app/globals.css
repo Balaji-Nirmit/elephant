@@ -146,6 +146,16 @@
   --shadow-card: 0 4px 20px -2px hsl(200 15% 20% / 0.1);
   --shadow-soft: 0 2px 10px -2px hsl(200 15% 20% / 0.08);
   --shadow-lg: 0 10px 40px -10px hsl(200 15% 20% / 0.18);
+
+  /* landing page coloring */
+  --green-badge: 152 60% 42%;
+  --green-light: 148 45% 92%;
+  --yellow-tag: 43 96% 56%;
+  --yellow-light: 45 80% 92%;
+  --warm-bg: 35 40% 95%;
+  --mint-bg: 152 30% 94%;
+  --peach-bg: 20 50% 95%;
+  --lavender-bg: 260 30% 96%;
 }
 
 /* =======================================================
