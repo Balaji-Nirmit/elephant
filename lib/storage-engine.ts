@@ -14,7 +14,7 @@ let progressListener: ((progress: SyncProgress) => void) | null = null;
 
 let manifest: Record<string, { id: string; v: number; dirty: boolean }> = {};
 const saveTimeouts: Record<string, any> = {};
-const uploadQueue: Record<string, Promise<any>> = {}; // Problem 1: Race Condition Fix
+const uploadQueue: Record<string, Promise<any>> = {};
 let manifestSyncTimeout: any = null;
 let initPromise: Promise<void> | null = null;
 
@@ -45,17 +45,15 @@ export const StorageEngine = {
           const cloudMeta = await GoogleDriveSync.findFileByName(MANIFEST_FILE);
           
           if (cloudMeta) {
-            // If local doesn't exist, this is a NEW DEVICE (Case 2)
             if (!localManifestExist) {
               await this.restoreMetadata(cloudMeta.id);
               return; 
             } else {
-              // EXISTING DEVICE (Case 1): Check for updates/conflicts (Problem 2)
               await this.syncWithCloud(cloudMeta.id);
             }
           } else {
-            // NEW USER (Case 3)
             if (!localManifestExist) {
+              // Initial Skeleton for New User
               await this._saveToLocal(FOLDERS_FILE, [], false);
               await this._saveToLocal(INDEXES_FILE, [], false);
               manifest = { [MANIFEST_FILE]: { id: "", v: 0, dirty: true } };
@@ -65,14 +63,18 @@ export const StorageEngine = {
         }
 
         if (navigator.onLine) {
-          this.syncDirtyFiles();
+          await this.syncDirtyFiles();
+        } else if (statusListener) {
+          statusListener("synced"); // Default to synced (offline mode)
         }
-      } catch (e) { console.warn("StorageEngine: Ready."); }
+      } catch (e) { 
+        console.warn("StorageEngine Ready."); 
+        if (statusListener) statusListener("synced");
+      }
     })();
     return initPromise;
   },
 
-  // Problem 2: Conflict Detection Architecture
   async syncWithCloud(cloudManifestId: string) {
     try {
       const cloudManifest = await GoogleDriveSync.downloadFile(cloudManifestId);
@@ -82,45 +84,33 @@ export const StorageEngine = {
         const remote = cloudManifest[fileName];
         const local = manifest[fileName];
 
-        // 1. New file from another device
         if (!local) {
           manifest[fileName] = { ...remote, dirty: false };
           localNeedsUpdate = true;
-        } 
-        // 2. Remote has a higher version
-        else if (remote.v > local.v) {
+        } else if (remote.v > local.v) {
           if (local.dirty) {
-            // CONFLICT: Create a duplicate local copy so no work is lost
             await this._handleConflict(fileName, remote);
           } else {
-            // UPDATE: Just accept the remote version
             manifest[fileName] = { ...remote, dirty: false };
             localNeedsUpdate = true;
           }
         }
       }
-      
-      if (localNeedsUpdate) {
-        await this._persistManifest();
-      }
+      if (localNeedsUpdate) await this._persistManifest();
     } catch (e) { console.error("Cloud check failed", e); }
   },
 
   async _handleConflict(id: string, remoteMeta: any) {
-    if (id.includes('nickblake')) return; // Don't conflict-split folders/indexes
-
+    if (id.includes('nickblake')) return; 
     const remoteData = await GoogleDriveSync.downloadFile(remoteMeta.id);
     const localData = await this.loadNoteBlocks(id);
 
-    // Save current local "dirty" work as a separate conflict file
     const conflictId = `CONFLICT-${Date.now()}-${id}`;
     await this._saveToLocal(conflictId, localData, true);
     manifest[conflictId] = { id: "", v: 0, dirty: true };
 
-    // Update the original ID with the remote version
     await this._saveToLocal(id, remoteData, true);
     manifest[id] = { ...remoteMeta, dirty: false };
-    
     await this._persistManifest();
   },
 
@@ -143,14 +133,17 @@ export const StorageEngine = {
     }
   },
 
-  // --- WRITES ---
-
   async _performWrite(fileName: string, data: any, isNote: boolean) {
     await this.init();
     await this._saveToLocal(fileName, data, isNote);
 
     if (!manifest[fileName]) manifest[fileName] = { id: "", v: 0, dirty: true };
     manifest[fileName].dirty = true;
+    
+    // Ensure the manifest itself is marked dirty so it gets updated eventually
+    if (!manifest[MANIFEST_FILE]) manifest[MANIFEST_FILE] = { id: "", v: 0, dirty: true };
+    manifest[MANIFEST_FILE].dirty = true;
+    
     await this._persistManifest();
 
     if (navigator.onLine) {
@@ -159,14 +152,10 @@ export const StorageEngine = {
       statusListener("offline");
     }
   },
-  
-  // Problem 1: Sequential Upload Queue (Fixed for TS)
+
   async _uploadToDrive(fileName: string, data: any, isNote: boolean) {
-    // If an upload is already in flight for this specific file, wait for it.
     const existingUpload = uploadQueue[fileName];
-    if (existingUpload) {
-      await existingUpload;
-    }
+    if (existingUpload) await existingUpload;
 
     const perform = async () => {
       if (statusListener) statusListener("syncing");
@@ -181,19 +170,16 @@ export const StorageEngine = {
           manifest[fileName].dirty = false;
           await this._persistManifest();
           
-          const remainingDirty = Object.values(manifest).some(item => item.dirty);
-          if (!remainingDirty) {
-            this._debouncedManifestSync();
-            if (statusListener) statusListener("synced");
+          // Only trigger manifest sync if NO OTHER content files are dirty
+          const hasContentDirty = Object.keys(manifest).some(key => key !== MANIFEST_FILE && manifest[key].dirty);
+          if (!hasContentDirty) {
+            await this._debouncedManifestSync();
           }
         }
       } catch (e) {
         if (statusListener) statusListener("error");
       } finally {
-        // IMPORTANT: Only delete from queue if this specific promise is still the one there
-        if (uploadQueue[fileName] === currentUpload) {
-          delete uploadQueue[fileName];
-        }
+        delete uploadQueue[fileName];
       }
     };
 
@@ -202,24 +188,28 @@ export const StorageEngine = {
     return currentUpload;
   },
 
-  _debouncedManifestSync() {
+  async _debouncedManifestSync() {
     if (manifestSyncTimeout) clearTimeout(manifestSyncTimeout);
-    manifestSyncTimeout = setTimeout(async () => {
-      const selfId = manifest[MANIFEST_FILE]?.id;
-      try {
-        const res = await GoogleDriveSync.syncFile(MANIFEST_FILE, manifest, selfId);
-        if (res && !selfId) {
-          manifest[MANIFEST_FILE] = { id: res.id, v: 1, dirty: false };
-          await this._persistManifest();
+    return new Promise((resolve) => {
+      manifestSyncTimeout = setTimeout(async () => {
+        const selfId = manifest[MANIFEST_FILE]?.id;
+        try {
+          const res = await GoogleDriveSync.syncFile(MANIFEST_FILE, manifest, selfId);
+          if (res) {
+            manifest[MANIFEST_FILE].id = res.id;
+            manifest[MANIFEST_FILE].v = (manifest[MANIFEST_FILE].v || 0) + 1;
+            manifest[MANIFEST_FILE].dirty = false;
+            await this._persistManifest();
+          }
+          if (statusListener) statusListener("synced");
+          resolve(true);
+        } catch (e) {
+          if (statusListener) statusListener("error");
+          resolve(false);
         }
-        if (statusListener) statusListener("synced");
-      } catch (e) {
-        if (statusListener) statusListener("error");
-      }
-    }, 3000);
+      }, 2000);
+    });
   },
-
-  // --- READS ---
 
   async loadIndexes(): Promise<NoteIndex[]> {
     await this.init();
@@ -258,15 +248,19 @@ export const StorageEngine = {
     }
   },
 
-  // --- SYNC & UTILS ---
-
   async syncDirtyFiles() {
     if (!navigator.onLine) return;
     const dirty = Object.keys(manifest).filter(n => manifest[n].dirty && n !== MANIFEST_FILE);
+    
     if (dirty.length === 0) {
-      if (statusListener) statusListener("synced");
+      if (manifest[MANIFEST_FILE]?.dirty) {
+        await this._debouncedManifestSync();
+      } else if (statusListener) {
+        statusListener("synced");
+      }
       return;
     }
+
     if (statusListener) statusListener("syncing");
     for (let i = 0; i < dirty.length; i++) {
       if (progressListener) progressListener({ current: i + 1, total: dirty.length });
@@ -277,7 +271,6 @@ export const StorageEngine = {
         if (isNote) data = await this.loadNoteBlocks(name);
         else if (name === FOLDERS_FILE) data = await this.loadFolders();
         else data = await this.loadIndexes();
-
         await this._uploadToDrive(name, data, isNote);
       } catch { continue; }
     }
@@ -292,10 +285,11 @@ export const StorageEngine = {
       await dir.removeEntry(`${id}.json`);
       const driveId = manifest[id]?.id;
       delete manifest[id];
+      if (manifest[MANIFEST_FILE]) manifest[MANIFEST_FILE].dirty = true;
       await this._persistManifest();
       if (navigator.onLine && driveId) {
         await GoogleDriveSync.deleteFile(driveId);
-        this._debouncedManifestSync();
+        await this._debouncedManifestSync();
       }
     } catch (e) { console.warn("Deleted locally."); }
   },
