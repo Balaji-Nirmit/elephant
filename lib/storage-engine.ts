@@ -31,6 +31,7 @@ export const StorageEngine = {
       try {
         await root.getDirectoryHandle(NOTES_DIR, { create: true });
 
+        // --- PHASE 1: IMMEDIATE LOCAL READ ---
         let localManifestExist = false;
         try {
           const handle = await root.getFileHandle(MANIFEST_FILE);
@@ -38,41 +39,47 @@ export const StorageEngine = {
           localManifestExist = true;
         } catch {
           manifest = {};
-          localManifestExist = false;
         }
 
-        if (navigator.onLine) {
-          const cloudMeta = await GoogleDriveSync.findFileByName(MANIFEST_FILE);
-          
-          if (cloudMeta) {
-            if (!localManifestExist) {
-              await this.restoreMetadata(cloudMeta.id);
-              return; 
-            } else {
-              await this.syncWithCloud(cloudMeta.id);
-            }
-          } else {
-            if (!localManifestExist) {
-              // Initial Skeleton for New User
-              await this._saveToLocal(FOLDERS_FILE, [], false);
-              await this._saveToLocal(INDEXES_FILE, [], false);
-              manifest = { [MANIFEST_FILE]: { id: "", v: 0, dirty: true } };
-              await this._persistManifest();
-            }
-          }
-        }
-
-        if (navigator.onLine) {
-          await this.syncDirtyFiles();
-        } else if (statusListener) {
-          statusListener("synced"); // Default to synced (offline mode)
-        }
-      } catch (e) { 
-        console.warn("StorageEngine Ready."); 
+        // We resolve the init early so the UI can render from OPFS immediately.
+        console.log("StorageEngine: Local-first initialization complete.");
         if (statusListener) statusListener("synced");
+
+        // --- PHASE 2: BACKGROUND CLOUD DISCOVERY ---
+        // Do NOT await this. It runs while the user is already using the app.
+        if (navigator.onLine) {
+          this.runBackgroundCloudDiscovery(localManifestExist);
+        }
+      } catch (e) {
+        console.error("Critical StorageEngine failure:", e);
       }
     })();
     return initPromise;
+  },
+
+  async runBackgroundCloudDiscovery(localExists: boolean) {
+    try {
+      const cloudMeta = await GoogleDriveSync.findFileByName(MANIFEST_FILE);
+      
+      if (cloudMeta) {
+        if (!localExists) {
+          // NEW DEVICE: User sees nothing until this finishes.
+          await this.restoreMetadata(cloudMeta.id);
+        } else {
+          // EXISTING DEVICE: Silently check for updates from other devices.
+          await this.syncWithCloud(cloudMeta.id);
+          await this.syncDirtyFiles();
+        }
+      } else if (!localExists) {
+        // NEW USER: Setup default structure
+        await this._saveToLocal(FOLDERS_FILE, [], false);
+        await this._saveToLocal(INDEXES_FILE, [], false);
+        manifest = { [MANIFEST_FILE]: { id: "", v: 0, dirty: true } };
+        await this._persistManifest();
+      }
+    } catch (e) {
+      console.warn("Background sync paused (Network check failed).");
+    }
   },
 
   async syncWithCloud(cloudManifestId: string) {
@@ -97,7 +104,7 @@ export const StorageEngine = {
         }
       }
       if (localNeedsUpdate) await this._persistManifest();
-    } catch (e) { console.error("Cloud check failed", e); }
+    } catch (e) { console.error("Cloud manifest merge failed", e); }
   },
 
   async _handleConflict(id: string, remoteMeta: any) {
@@ -127,11 +134,13 @@ export const StorageEngine = {
       if (fldId) await this._saveToLocal(FOLDERS_FILE, await GoogleDriveSync.downloadFile(fldId), false);
       
       if (statusListener) statusListener("synced");
-      window.location.reload();
+      window.location.reload(); // Refresh to inject restored data into UI
     } catch (e) {
       if (statusListener) statusListener("error");
     }
   },
+
+  // --- WRITES (Optimistic Local Save) ---
 
   async _performWrite(fileName: string, data: any, isNote: boolean) {
     await this.init();
@@ -140,7 +149,7 @@ export const StorageEngine = {
     if (!manifest[fileName]) manifest[fileName] = { id: "", v: 0, dirty: true };
     manifest[fileName].dirty = true;
     
-    // Ensure the manifest itself is marked dirty so it gets updated eventually
+    // Ensure manifest is marked dirty for later cloud registry sync
     if (!manifest[MANIFEST_FILE]) manifest[MANIFEST_FILE] = { id: "", v: 0, dirty: true };
     manifest[MANIFEST_FILE].dirty = true;
     
@@ -170,7 +179,6 @@ export const StorageEngine = {
           manifest[fileName].dirty = false;
           await this._persistManifest();
           
-          // Only trigger manifest sync if NO OTHER content files are dirty
           const hasContentDirty = Object.keys(manifest).some(key => key !== MANIFEST_FILE && manifest[key].dirty);
           if (!hasContentDirty) {
             await this._debouncedManifestSync();
@@ -211,6 +219,8 @@ export const StorageEngine = {
     });
   },
 
+  // --- READS (Instant OPFS access) ---
+
   async loadIndexes(): Promise<NoteIndex[]> {
     await this.init();
     try {
@@ -234,6 +244,7 @@ export const StorageEngine = {
       const h = await d.getFileHandle(`${id}.json`);
       return JSON.parse(await (await h.getFile()).text());
     } catch {
+      // Lazy-load from cloud if missing locally
       const driveId = manifest[id]?.id;
       if (driveId && navigator.onLine) {
         try {
