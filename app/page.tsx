@@ -37,7 +37,7 @@ const Index = () => {
     await authClient.signIn.social({
       provider: "google",
       callbackURL: "/dashboard",
-      scopes: ["https://www.googleapis.com/auth/drive.file"],
+      scopes: ["https://www.googleapis.com/auth/drive"],// if drive.file then it will only give access to files created by the app from a particular device
     })
   }
 

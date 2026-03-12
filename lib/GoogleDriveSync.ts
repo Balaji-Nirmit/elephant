@@ -13,13 +13,19 @@ export const GoogleDriveSync = {
   async findFileByName(name: string): Promise<DriveFileMetadata | null> {
     try {
       const token = await this._getAuth();
-      const q = encodeURIComponent(`name = '${name}' and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
+      const params = new URLSearchParams({
+        q: `name = '${name}' and trashed = false`,
+        fields: 'files(id, name)',
+        spaces: 'drive' // or 'appDataFolder' if you stored it there
+      });
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      return data.files?.[0] || null;
-    } catch { return null; }
+      return data.files && data.files.length > 0 ? data.files[0] : null;
+    } catch (error) {
+      return null;
+    }
   },
 
   async downloadFile(driveId: string): Promise<any> {
