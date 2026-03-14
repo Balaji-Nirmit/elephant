@@ -2022,7 +2022,7 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
         {/* Click to add block at end */}
         <motion.div
           onClick={() => addBlockAfter(blocks[blocks.length - 1]?.id || "")}
-          className="h-24 cursor-text flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+          className="h-51 cursor-text flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
           whileHover={{ scale: 1.01 }}
         >
           <span className="text-sm text-muted-foreground/50">Click to add a block</span>
