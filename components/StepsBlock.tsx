@@ -1,0 +1,156 @@
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Plus, X, GripVertical, Check } from "lucide-react";
+
+interface StepItem {
+  id: string;
+  title: string;
+  description: string;
+  completed: boolean;
+}
+
+interface StepsBlockProps {
+  steps: StepItem[];
+  onUpdate: (steps: StepItem[]) => void;
+}
+
+const stepColors = [
+  "from-blue-500 to-cyan-500",
+  "from-violet-500 to-purple-500",
+  "from-rose-500 to-pink-500",
+  "from-amber-500 to-orange-500",
+  "from-emerald-500 to-teal-500",
+  "from-fuchsia-500 to-pink-500",
+];
+
+const StepsBlock = ({ steps, onUpdate }: StepsBlockProps) => {
+  const [hoveredStep, setHoveredStep] = useState<string | null>(null);
+
+  const addStep = () => {
+    onUpdate([...steps, {
+      id: crypto.randomUUID(),
+      title: "",
+      description: "",
+      completed: false,
+    }]);
+  };
+
+  const removeStep = (id: string) => {
+    if (steps.length <= 1) return;
+    onUpdate(steps.filter(s => s.id !== id));
+  };
+
+  const updateStep = (id: string, updates: Partial<StepItem>) => {
+    onUpdate(steps.map(s => s.id === id ? { ...s, ...updates } : s));
+  };
+
+  const toggleComplete = (id: string) => {
+    onUpdate(steps.map(s => s.id === id ? { ...s, completed: !s.completed } : s));
+  };
+
+  const completedCount = steps.filter(s => s.completed).length;
+  const progress = steps.length > 0 ? (completedCount / steps.length) * 100 : 0;
+
+  return (
+    <div className="py-3">
+      {/* Progress indicator */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+          <motion.div
+            className="h-full rounded-full bg-linear-to-r from-blue-500 to-emerald-500"
+            initial={{ width: 0 }}
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+          />
+        </div>
+        <span className="text-xs font-medium text-muted-foreground">
+          {completedCount}/{steps.length}
+        </span>
+      </div>
+
+      {/* Steps */}
+      <div className="relative">
+        {/* Vertical line */}
+        <div className="absolute left-5 top-6 bottom-6 w-px bg-border/60" />
+
+        <AnimatePresence>
+          {steps.map((step, index) => {
+            const color = stepColors[index % stepColors.length];
+            return (
+              <motion.div
+                key={step.id}
+                className="relative flex gap-4 mb-3 last:mb-0 group"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20, height: 0 }}
+                transition={{ delay: index * 0.05 }}
+                onMouseEnter={() => setHoveredStep(step.id)}
+                onMouseLeave={() => setHoveredStep(null)}
+              >
+                {/* Step number / check */}
+                <motion.button
+                  onClick={() => toggleComplete(step.id)}
+                  className={`relative z-10 w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 transition-all duration-300 cursor-pointer ${
+                    step.completed
+                      ? "bg-linear-to-br from-emerald-500 to-green-500 text-white shadow-lg shadow-emerald-500/25"
+                      : `bg-linear-to-br ${color} text-white shadow-md`
+                  }`}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  {step.completed ? <Check className="w-4 h-4" /> : index + 1}
+                </motion.button>
+
+                {/* Content */}
+                <div className={`flex-1 rounded-xl border border-border/50 p-3 transition-all duration-200 ${
+                  step.completed ? "bg-muted/30 opacity-70" : "bg-card hover:border-border"
+                }`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <input
+                        value={step.title}
+                        onChange={(e) => updateStep(step.id, { title: e.target.value })}
+                        className={`w-full bg-transparent border-none outline-none text-sm font-semibold text-foreground placeholder:text-muted-foreground/50 ${
+                          step.completed ? "line-through" : ""
+                        }`}
+                        placeholder={`Step ${index + 1} title...`}
+                      />
+                      <input
+                        value={step.description}
+                        onChange={(e) => updateStep(step.id, { description: e.target.value })}
+                        className="w-full bg-transparent border-none outline-none text-xs text-muted-foreground mt-1 placeholder:text-muted-foreground/30"
+                        placeholder="Add details..."
+                      />
+                    </div>
+                    {hoveredStep === step.id && steps.length > 1 && (
+                      <motion.button
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        onClick={() => removeStep(step.id)}
+                        className="p-1 rounded-md hover:bg-destructive/10 text-muted-foreground/40 hover:text-destructive transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </motion.button>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
+
+      {/* Add step */}
+      <motion.button
+        onClick={addStep}
+        className="mt-3 ml-14 flex items-center gap-2 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+        whileHover={{ x: 4 }}
+      >
+        <Plus className="w-3.5 h-3.5" />
+        Add step
+      </motion.button>
+    </div>
+  );
+};
+
+export default StepsBlock;

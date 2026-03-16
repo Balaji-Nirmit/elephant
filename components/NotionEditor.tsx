@@ -47,6 +47,11 @@ import {
   Volume2,
   ZoomIn,
   Layers,
+  SeparatorHorizontal,
+  HelpCircle,
+  GitCompare,
+  Footprints,
+  Grid2x2,
 } from "lucide-react";
 import { NoteBlock, FlashcardItem } from "@/lib/types";
 import ImageLightbox from "./ImageLightbox";
@@ -59,6 +64,11 @@ import DataTable from "./DataTable";
 import KanbanBlock from "./KanbanBlock";
 import FlashcardStudyMode from "./FlashcardStudyMode";
 import TabsBlock from "./TabsBlock";
+import LabeledDividerBlock from "./LabeledDividerBlock";
+import FaqBlock from "./FaqBlock";
+import ComparisonTableBlock from "./ComparisonTableBlock";
+import StepsBlock from "./StepsBlock";
+import SwotBlock from "./SwotBlock";
 
 interface NotionEditorProps {
   blocks: NoteBlock[];
@@ -98,6 +108,11 @@ const blockTypes = [
   { type: "flashcard" as const, icon: Lightbulb, label: "Flashcards", description: "Quick revision cards", category: "advanced" },
   { type: "chart" as const, icon: BarChart3, label: "Chart", description: "Data visualization charts", category: "advanced" },
   { type: "tabs" as const, icon: Layers, label: "Tabs", description: "Tabbed content sections", category: "advanced" },
+  { type: "labeledDivider" as const, icon: SeparatorHorizontal, label: "Labeled Divider", description: "Divider with centered label", category: "basic" },
+  { type: "faq" as const, icon: HelpCircle, label: "FAQ", description: "Collapsible Q&A accordion", category: "advanced" },
+  { type: "comparisonTable" as const, icon: GitCompare, label: "Comparison", description: "Compare options side by side", category: "advanced" },
+  { type: "steps" as const, icon: Footprints, label: "Steps", description: "Step-by-step process flow", category: "advanced" },
+  { type: "swot" as const, icon: Grid2x2, label: "SWOT Analysis", description: "Strengths, Weaknesses, Opportunities, Threats", category: "advanced" },
 ] as const;
 
 const progressColors = [
@@ -207,6 +222,28 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
       chartXAxisKey: type === "chart" ? "name" : undefined,
       chartSelectedSeries: type === "chart" ? ["value"] : undefined,
       chartSeriesColors: type === "chart" ? { value: "#3b82f6" } : undefined,
+      // Labeled Divider
+      dividerLabel: type === "labeledDivider" ? "Section" : undefined,
+      dividerStyle: type === "labeledDivider" ? "simple" : undefined,
+      // tabs data
+      tabsData: type === "tabs" ? [
+        { id: crypto.randomUUID(), label: "Tab 1", content: "", blocks: [{ id: crypto.randomUUID(), type: "text" as const, content: "" }] },
+        { id: crypto.randomUUID(), label: "Tab 2", content: "", blocks: [{ id: crypto.randomUUID(), type: "text" as const, content: "" }] },
+      ] : undefined,
+      // FAQ
+      faqItems: type === "faq" ? [
+        { id: crypto.randomUUID(), question: "", answer: "" },
+      ] : undefined,
+      // Steps
+      stepsItems: type === "steps" ? [
+        { id: crypto.randomUUID(), title: "Step 1", description: "", completed: false },
+        { id: crypto.randomUUID(), title: "Step 2", description: "", completed: false },
+        { id: crypto.randomUUID(), title: "Step 3", description: "", completed: false },
+      ] : undefined,
+      swotStrengths: type === "swot" ? [""] : undefined,
+      swotWeaknesses: type === "swot" ? [""] : undefined,
+      swotOpportunities: type === "swot" ? [""] : undefined,
+      swotThreats: type === "swot" ? [""] : undefined,
     };
     const index = blocks.findIndex((b) => b.id === afterId);
     const newBlocks = [...blocks];
@@ -1442,8 +1479,8 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
                 >
                   <Star
                     className={`w-6 h-6 transition-colors ${index < (block.ratingValue || 0)
-                        ? 'fill-yellow-400 text-yellow-400'
-                        : 'text-muted-foreground/30'
+                      ? 'fill-yellow-400 text-yellow-400'
+                      : 'text-muted-foreground/30'
                       }`}
                   />
                 </motion.button>
@@ -1740,6 +1777,55 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
           </div>
         );
 
+      case "labeledDivider":
+        return (
+          <LabeledDividerBlock
+            label={block.dividerLabel || ""}
+            style={block.dividerStyle || "simple"}
+            onUpdate={(updates) => updateBlock(block.id, updates)}
+          />
+        );
+
+      case "faq":
+        return (
+          <FaqBlock
+            items={block.faqItems || [{ id: crypto.randomUUID(), question: "", answer: "" }]}
+            onUpdate={(faqItems) => updateBlock(block.id, { faqItems })}
+          />
+        );
+
+      case "comparisonTable":
+        return (
+          <ComparisonTableBlock
+            columns={block.comparisonColumns || [
+              { id: "col1", name: "Option A" },
+              { id: "col2", name: "Option B" },
+            ]}
+            rows={block.comparisonRows || [
+              { id: crypto.randomUUID(), feature: "", values: { col1: "", col2: "" } },
+            ]}
+            onUpdate={(updates) => updateBlock(block.id, updates)}
+          />
+        );
+
+        case "steps":
+          return (
+            <StepsBlock
+              steps={block.stepsItems || [{ id: crypto.randomUUID(), title: "Step 1", description: "", completed: false }]}
+              onUpdate={(stepsItems) => updateBlock(block.id, { stepsItems })}
+            />
+          );
+
+          case "swot":
+            return (
+              <SwotBlock
+                strengths={block.swotStrengths || [""]}
+                weaknesses={block.swotWeaknesses || [""]}
+                opportunities={block.swotOpportunities || [""]}
+                threats={block.swotThreats || [""]}
+                onUpdate={(updates) => updateBlock(block.id, updates)}
+              />
+            );
       default:
         return renderEditableContent(block);
     }
@@ -1762,8 +1848,8 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
             }}
             transition={{ duration: 0.15, type: "spring", stiffness: 300, damping: 30 }}
             className={`group relative flex items-start gap-1 rounded-lg transition-all w-full min-w-0 ${draggedBlockId === block.id
-                ? 'bg-primary/5 shadow-lg shadow-primary/20'
-                : ''
+              ? 'bg-primary/5 shadow-lg shadow-primary/20'
+              : ''
               } ${dragOverBlockId === block.id && draggedBlockId !== block.id
                 ? 'border-t-2 border-primary/50 pt-1'
                 : ''
@@ -1979,6 +2065,11 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
                                 } else if (bt.type === "flashcard") {
                                   baseUpdate.flashcards = [];
                                   baseUpdate.content = "Flashcards";
+                                }else if (bt.type === "swot") {
+                                  baseUpdate.swotStrengths = [""];
+                                  baseUpdate.swotWeaknesses = [""];
+                                  baseUpdate.swotOpportunities = [""];
+                                  baseUpdate.swotThreats = [""];
                                 }
 
                                 updateBlock(block.id, baseUpdate);

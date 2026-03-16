@@ -18,7 +18,13 @@ export interface NoteBlock {
     // Tabs block type
     | "tabs"
     // Chart block type
-    | "chart";
+    | "chart"
+    // New creative blocks
+    | "swot"
+    // Layout & formatting blocks
+    | "steps" | "labeledDivider" | "faq"
+    // New premium blocks
+    | "comparisonTable";
   content: string;
   checked?: boolean;
   tableData?: string[][];
@@ -80,6 +86,21 @@ export interface NoteBlock {
   indentLevel?: number; // For nested lists (0-3)
   // Legacy support
   chartData?: { id: string; label: string; value: number; color: string }[];
+  // SWOT data
+  swotStrengths?: string[];
+  swotWeaknesses?: string[];
+  swotOpportunities?: string[];
+  swotThreats?: string[];
+  // Steps block
+  stepsItems?: { id: string; title: string; description: string; completed: boolean }[];
+  // Labeled Divider
+  dividerLabel?: string;
+  dividerStyle?: string;
+  // FAQ block
+  faqItems?: { id: string; question: string; answer: string }[];
+  // Comparison Table
+  comparisonColumns?: { id: string; name: string; highlighted?: boolean }[];
+  comparisonRows?: { id: string; feature: string; values: Record<string, "yes" | "no" | "partial" | string> }[];
 }
 
 export interface Note {
