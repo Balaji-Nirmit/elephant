@@ -1,6 +1,7 @@
+'use client'
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, X, GripVertical, Check } from "lucide-react";
+import { Plus, X, Check } from "lucide-react";
 
 interface StepItem {
   id: string;
@@ -53,12 +54,11 @@ const StepsBlock = ({ steps, onUpdate }: StepsBlockProps) => {
 
   return (
     <div className="py-3">
-      {/* Progress indicator */}
       <div className="flex items-center gap-3 mb-4">
         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
           <motion.div
             className="h-full rounded-full bg-linear-to-r from-blue-500 to-emerald-500"
-            initial={{ width: 0 }}
+            initial={false} // Prevents progress bar from sliding on first load
             animate={{ width: `${progress}%` }}
             transition={{ duration: 0.5, ease: "easeOut" }}
           />
@@ -68,26 +68,25 @@ const StepsBlock = ({ steps, onUpdate }: StepsBlockProps) => {
         </span>
       </div>
 
-      {/* Steps */}
       <div className="relative">
-        {/* Vertical line */}
         <div className="absolute left-5 top-6 bottom-6 w-px bg-border/60" />
 
-        <AnimatePresence>
+        {/* Added mode="popLayout" and initial={false} to stop jitter/initial mount animation */}
+        <AnimatePresence mode="popLayout" initial={false}>
           {steps.map((step, index) => {
             const color = stepColors[index % stepColors.length];
             return (
               <motion.div
                 key={step.id}
+                layout // Smoothly slides other items when one is removed
                 className="relative flex gap-4 mb-3 last:mb-0 group"
-                initial={{ opacity: 0, x: -20 }}
+                initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20, height: 0 }}
-                transition={{ delay: index * 0.05 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
                 onMouseEnter={() => setHoveredStep(step.id)}
                 onMouseLeave={() => setHoveredStep(null)}
               >
-                {/* Step number / check */}
                 <motion.button
                   onClick={() => toggleComplete(step.id)}
                   className={`relative z-10 w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 transition-all duration-300 cursor-pointer ${
@@ -101,7 +100,6 @@ const StepsBlock = ({ steps, onUpdate }: StepsBlockProps) => {
                   {step.completed ? <Check className="w-4 h-4" /> : index + 1}
                 </motion.button>
 
-                {/* Content */}
                 <div className={`flex-1 rounded-xl border border-border/50 p-3 transition-all duration-200 ${
                   step.completed ? "bg-muted/30 opacity-70" : "bg-card hover:border-border"
                 }`}>
@@ -140,7 +138,6 @@ const StepsBlock = ({ steps, onUpdate }: StepsBlockProps) => {
         </AnimatePresence>
       </div>
 
-      {/* Add step */}
       <motion.button
         onClick={addStep}
         className="mt-3 ml-14 flex items-center gap-2 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"

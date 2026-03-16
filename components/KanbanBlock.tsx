@@ -61,7 +61,7 @@ const KanbanBlock = ({ block, updateBlock }: KanbanBlockProps) => {
 
   return (
     <div className="py-3">
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div className="flex gap-3 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         {columns.map((column, colIndex) => (
           <div
             key={column.id}
