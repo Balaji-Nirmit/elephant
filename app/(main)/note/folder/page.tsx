@@ -184,8 +184,38 @@ const FolderPage = () => {
                         <p className="text-xs text-muted-foreground">{getNoteIndexesForFolder(folder.id).length} notes</p>
                       </div>
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                        {/* ... (Your delete logic) */}
-                        <button onClick={(e) => { e.stopPropagation(); setDeletingFolderId(folder.id); }} className="p-2 text-destructive/60 hover:text-destructive"><Trash2 className="w-4 h-4" /></button>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center pr-1">
+                          <AnimatePresence mode="wait">
+                            {isDeleting ? (
+                              <motion.div key="confirm" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="flex gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteFolder(folder.id);
+                                    setDeletingFolderId(null);
+                                    if (isActive) setSelectedFolderId(null);
+                                  }}
+                                  className="p-1.5 rounded-md bg-destructive text-white shadow-sm"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setDeletingFolderId(null); }}
+                                  className="p-1.5 rounded-md bg-muted border border-border"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </motion.div>
+                            ) : (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setDeletingFolderId(folder.id); }}
+                                className="p-2 rounded-lg text-destructive/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </AnimatePresence>
+                        </div>
                       </div>
                     </motion.div>
                   );
