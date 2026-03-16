@@ -39,7 +39,7 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   // Index functionality
-  const { index, scrollToHeading } = useHeadingIndex(note.blocks);
+  const { index, scrollToHeading } = useHeadingIndex(note.blocks || []);
   const { exportNote } = useNoteExport();
 
   // Undo/Redo functionality
@@ -136,6 +136,7 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
 
   // Find & Replace handler
   const handleFindReplace = useCallback((replacements: { blockId: string; field: "content" | "toggleContent"; oldText: string; newText: string }[]) => {
+    if (!note.blocks || !Array.isArray(note.blocks)) return;
     const newBlocks = note.blocks.map((block) => {
       const blockReplacements = replacements.filter((r) => r.blockId === block.id);
       if (blockReplacements.length === 0) return block;
@@ -557,7 +558,7 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
                   : ''
                 }
               >
-                <NotionEditor blocks={note.blocks} onChange={handleBlocksChange} />
+                <NotionEditor blocks={note.blocks || []} onChange={handleBlocksChange} />
               </motion.div>
             </motion.div>
           </div>
