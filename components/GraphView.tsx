@@ -1,283 +1,273 @@
 "use client";
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotesContext } from "@/contexts/NotesContext";
-import { RotateCcw, X, ExternalLink, Command } from "lucide-react";
+import { RotateCcw, X, Zap, Loader2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
+// --- TYPES ---
 interface RGB { r: number; g: number; b: number; }
 interface GraphNode {
   id: string; label: string; x: number; y: number; vx: number; vy: number;
   baseColor: RGB; accentColor: RGB; radius: number; type: "note" | "tag";
 }
+interface GraphEdge {
+  source: string; target: string; type: "tag" | "discovery";
+  commonWords?: string[];
+}
 
 const COLORS = {
-  blue: { base: { r: 59, g: 130, b: 246 }, accent: { r: 147, g: 197, b: 253 } },
-  amber: { base: { r: 251, g: 191, b: 36 }, accent: { r: 253, g: 230, b: 138 } },
+  blue: { base: { r: 59, g: 130, b: 246 } },
+  amber: { base: { r: 251, g: 191, b: 36 } },
+  purple: { base: { r: 168, g: 85, b: 247 } },
   background: "#020204",
-  edge: "rgba(255, 255, 255, 0.1)",
+  edge: "rgba(255, 255, 255, 0.08)",
 };
+
+const workerCode = `
+  self.onmessage = async (e) => {
+    const { selectedId, noteIndexes, stopWords } = e.data;
+    const stopWordsSet = new Set(stopWords);
+    try {
+      const root = await navigator.storage.getDirectory();
+      const notesDir = await root.getDirectoryHandle("notes");
+      const file = await notesDir.getFileHandle(\`\${selectedId}.json\`);
+      const data = JSON.parse(await (await file.getFile()).text());
+      const blocks = Array.isArray(data) ? data : (data.blocks || []);
+      const sourceText = blocks.map(b => (b.content || "").toLowerCase()).join(" ");
+      const sourceWords = new Set(sourceText.match(/\\b[a-z]{4,}\\b/g)?.filter(w => !stopWordsSet.has(w)) || []);
+
+      if (sourceWords.size === 0) { self.postMessage({ edges: [] }); return; }
+
+      const discoveryEdges = [];
+      for (const note of noteIndexes) {
+        if (note.id === selectedId) continue;
+        try {
+          const h = await notesDir.getFileHandle(\`\${note.id}.json\`);
+          const d = JSON.parse(await (await h.getFile()).text());
+          const b = Array.isArray(d) ? d : (d.blocks || []);
+          const text = b.map(bl => (bl.content || "").toLowerCase()).join(" ");
+          const words = text.match(/\\b[a-z]{4,}\\b/g) || [];
+          const overlap = Array.from(new Set(words.filter(w => sourceWords.has(w)))).slice(0, 3);
+          if (overlap.length > 0) discoveryEdges.push({ source: selectedId, target: note.id, type: 'discovery', commonWords: overlap });
+        } catch (err) { continue; }
+      }
+      self.postMessage({ edges: discoveryEdges });
+    } catch (error) { self.postMessage({ edges: [] }); }
+  };
+`;
 
 const GraphView = ({ onSelectNote }: { onSelectNote?: (id: string) => void }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const nodesRef = useRef<GraphNode[]>([]);
+  const edgesRef = useRef<GraphEdge[]>([]);
+  const workerRef = useRef<Worker | null>(null);
   const animationRef = useRef<number>(0);
   const timeRef = useRef<number>(0);
+  
   const { noteIndexes } = useNotesContext();
 
-  const [nodes, setNodes] = useState<GraphNode[]>([]);
-  const [edges, setEdges] = useState<{ source: string; target: string }[]>([]);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [dpr, setDpr] = useState(1);
+  const [isMapping, setIsMapping] = useState(false);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [draggedNode, setDraggedNode] = useState<string | null>(null); // New: Track drag state
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [bgHue, setBgHue] = useState<RGB>(COLORS.blue.base);
 
-  const filteredNodeIds = useMemo(() => {
-    if (!searchQuery.trim()) return null;
-    const matches = new Set<string>();
-    const query = searchQuery.toLowerCase();
-    noteIndexes.forEach(note => {
-      if (note.title.toLowerCase().includes(query)) {
-        matches.add(note.id);
-        note.tags.forEach(t => matches.add(`tag-${t.label}`));
+  useEffect(() => {
+    setDpr(window.devicePixelRatio || 1);
+    const blob = new Blob([workerCode], { type: "application/javascript" });
+    const worker = new Worker(URL.createObjectURL(blob));
+    workerRef.current = worker;
+    worker.onmessage = (e) => {
+      if (e.data.edges) {
+        const tagEdges = edgesRef.current.filter(edge => edge.type === 'tag');
+        edgesRef.current = [...tagEdges, ...e.data.edges];
       }
-    });
-    return matches;
-  }, [noteIndexes, searchQuery]);
+      setIsMapping(false);
+    };
+    return () => { worker.terminate(); cancelAnimationFrame(animationRef.current); };
+  }, []);
 
   useEffect(() => {
-    const active = selectedNode || hoveredNode;
-    setBgHue(active?.type === 'tag' ? COLORS.amber.base : COLORS.blue.base);
-  }, [selectedNode, hoveredNode]);
+    const updateSize = () => {
+      if (containerRef.current) {
+        setDimensions({ width: containerRef.current.clientWidth, height: containerRef.current.clientHeight });
+      }
+    };
+    updateSize();
+    window.addEventListener("resize", updateSize);
 
-  useEffect(() => {
-    const newNodes: GraphNode[] = noteIndexes.map(note => ({
-      id: note.id, label: note.title || "Untitled", x: Math.random() * 800, y: Math.random() * 600,
-      vx: 0, vy: 0, baseColor: COLORS.blue.base, accentColor: COLORS.blue.accent, radius: 11, type: "note"
+    const w = containerRef.current?.clientWidth || 1200;
+    const h = containerRef.current?.clientHeight || 800;
+
+    const noteNodes: GraphNode[] = noteIndexes.map(note => ({
+      id: note.id, label: note.title || "Untitled", x: Math.random() * w, y: Math.random() * h,
+      vx: 0, vy: 0, baseColor: COLORS.blue.base, accentColor: COLORS.blue.base, radius: 10, type: "note"
     }));
-    const tagNames = Array.from(new Set(noteIndexes.flatMap(n => n.tags.map(t => t.label))));
-    const tags: GraphNode[] = tagNames.map(tag => ({
-      id: `tag-${tag}`, label: tag, x: Math.random() * 800, y: Math.random() * 600,
-      vx: 0, vy: 0, baseColor: COLORS.amber.base, accentColor: COLORS.amber.accent, radius: 8, type: "tag"
+    const tagNodes: GraphNode[] = Array.from(new Set(noteIndexes.flatMap(n => n.tags.map(t => t.label)))).map(tag => ({
+      id: `tag-${tag}`, label: tag, x: Math.random() * w, y: Math.random() * h,
+      vx: 0, vy: 0, baseColor: COLORS.amber.base, accentColor: COLORS.amber.base, radius: 7, type: "tag"
     }));
-    setNodes([...newNodes, ...tags]);
-    setEdges(noteIndexes.flatMap(note => note.tags.map(t => ({ source: note.id, target: `tag-${t.label}` }))));
+
+    nodesRef.current = [...noteNodes, ...tagNodes];
+    edgesRef.current = noteIndexes.flatMap(note => note.tags.map(t => ({ source: note.id, target: `tag-${t.label}`, type: 'tag' })));
+    return () => window.removeEventListener("resize", updateSize);
   }, [noteIndexes]);
 
   useEffect(() => {
-    const runPhysics = () => {
-      timeRef.current += 0.01;
-      setNodes(prev => {
-        const next = prev.map(n => ({ ...n }));
-        
-        // Physics logic only applies to non-dragged nodes
-        for (let i = 0; i < next.length; i++) {
-          if (next[i].id === draggedNode) continue;
-
-          for (let j = i + 1; j < next.length; j++) {
-            const dx = next[j].x - next[i].x, dy = next[j].y - next[i].y, d = Math.sqrt(dx * dx + dy * dy) || 1;
-            const minDist = (next[i].radius + next[j].radius) * 16;
-            if (d < minDist) {
-              const f = (minDist - d) * 0.04;
-              next[i].vx -= (dx / d) * f; next[i].vy -= (dy / d) * f; next[j].vx += (dx / d) * f; next[j].vy += (dy / d) * f;
-            }
-          }
-        }
-
-        edges.forEach(e => {
-          const s = next.find(n => n.id === e.source), t = next.find(n => n.id === e.target);
-          if (s && t) {
-            const dx = t.x - s.x, dy = t.y - s.y, d = Math.sqrt(dx * dx + dy * dy) || 1, f = (d - 140) * 0.007;
-            if (s.id !== draggedNode) { s.vx += (dx / d) * f; s.vy += (dy / d) * f; }
-            if (t.id !== draggedNode) { t.vx -= (dx / d) * f; t.vy -= (dy / d) * f; }
-          }
-        });
-
-        next.forEach(n => {
-          if (n.id !== draggedNode) {
-            n.vx += (dimensions.width / 2 - n.x) * 0.0005; n.vy += (dimensions.height / 2 - n.y) * 0.0005;
-            n.vx *= 0.88; n.vy *= 0.88; n.x += n.vx; n.y += n.vy;
-          }
-        });
-        return next;
-      });
-      animationRef.current = requestAnimationFrame(runPhysics);
-    };
-    animationRef.current = requestAnimationFrame(runPhysics);
-    return () => cancelAnimationFrame(animationRef.current);
-  }, [edges, dimensions, draggedNode]);
+    if (!selectedNodeId || !workerRef.current) {
+      edgesRef.current = edgesRef.current.filter(e => e.type !== 'discovery');
+      return;
+    }
+    const node = nodesRef.current.find(n => n.id === selectedNodeId);
+    if (node?.type === 'note') {
+      setIsMapping(true);
+      workerRef.current.postMessage({ selectedId: selectedNodeId, noteIndexes, stopWords: ['this', 'that', 'with', 'from', 'about'] });
+    }
+  }, [selectedNodeId, noteIndexes]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !containerRef.current) return;
-    const ctx = canvas.getContext("2d");
+    if (!canvas || dimensions.width === 0) return;
+    const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
-    const render = () => {
-      const { clientWidth: w, clientHeight: h } = containerRef.current!;
-      canvas.width = w * window.devicePixelRatio; canvas.height = h * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-      ctx.fillStyle = COLORS.background; ctx.fillRect(0, 0, w, h);
+    const run = () => {
+      timeRef.current += 0.015;
+      const nodes = nodesRef.current;
+      const edges = edgesRef.current;
 
-      // --- Multi-Layer Parallax Background Threads ---
-      for (let i = 0; i < 4; i++) {
-        ctx.save();
-        const depth = 0.05 + (i * 0.05);
-        ctx.translate(w / 2 + offset.x * depth, h / 2 + offset.y * depth);
-        const t = timeRef.current * 0.3 + i;
-        ctx.beginPath();
-        ctx.moveTo(-w * 2, h * 0.25 * i - h);
-        ctx.bezierCurveTo(-w, Math.sin(t) * 180, w, Math.cos(t) * 180, w * 2, h * 0.25 * i - h);
-        ctx.strokeStyle = `rgba(${bgHue.r}, ${bgHue.g}, ${bgHue.b}, ${0.012 - (i * 0.002)})`;
-        ctx.lineWidth = 50 + (i * 25);
-        ctx.stroke();
-        ctx.restore();
-      }
+      // 1. CRITICAL BUG FIX: CLEAR THE BUFFER COMPLETELY
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset for clearing
+      ctx.fillStyle = COLORS.background;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.save();
+      // 2. APPLY TRANSFORMATIONS
+      ctx.scale(dpr, dpr);
       ctx.translate(offset.x, offset.y);
       ctx.scale(scale, scale);
 
-      // Edges with Trace Animations
-      edges.forEach(edge => {
-        const s = nodes.find(n => n.id === edge.source), t = nodes.find(n => n.id === edge.target);
-        if (s && t) {
-          const isInteracting = hoveredNode?.id === s.id || hoveredNode?.id === t.id || selectedNode?.id === s.id || selectedNode?.id === t.id || draggedNode === s.id || draggedNode === t.id;
-          const isFilteredOut = filteredNodeIds && (!filteredNodeIds.has(s.id) || !filteredNodeIds.has(t.id));
-
-          ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
-          ctx.strokeStyle = isInteracting ? `rgba(${bgHue.r}, ${bgHue.g}, ${bgHue.b}, 0.55)` : COLORS.edge;
-          ctx.globalAlpha = isFilteredOut ? 0.02 : 1;
-          ctx.lineWidth = 0.6;
-          ctx.stroke();
-
-          if (isInteracting) {
-            const pT = (timeRef.current * 1.5) % 1;
-            const px = s.x + (t.x - s.x) * pT, py = s.y + (t.y - s.y) * pT;
-            ctx.fillStyle = "rgba(255,255,255,0.5)";
-            ctx.beginPath(); ctx.arc(px, py, 1.2, 0, Math.PI * 2); ctx.fill();
-          }
-        }
-      });
-
-      // Nodes
-      nodes.forEach(node => {
-        const isHovered = hoveredNode?.id === node.id, isSelected = selectedNode?.id === node.id, isDragged = draggedNode === node.id;
-        const isMatched = filteredNodeIds?.has(node.id);
-        const isFilteredOut = filteredNodeIds && !isMatched;
-
-        ctx.globalAlpha = isFilteredOut ? 0.08 : 1;
-        const b = node.baseColor, a = node.accentColor;
-        const coreR = (isHovered || isMatched || isDragged) ? node.radius * 1.3 : node.radius;
-
-        const pulse = isMatched ? Math.sin(timeRef.current * 5) * 0.8 : 0;
-        const glowFactor = (isMatched || isDragged) ? (8 + pulse) : 5;
-        const glowAlpha = (isMatched || isDragged) ? 0.18 : 0.08;
-
-        const gGlow = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, coreR * glowFactor);
-        gGlow.addColorStop(0, `rgba(${b.r},${b.g},${b.b},${glowAlpha})`);
-        gGlow.addColorStop(1, "transparent");
-        ctx.fillStyle = gGlow; ctx.beginPath(); ctx.arc(node.x, node.y, coreR * glowFactor, 0, Math.PI * 2); ctx.fill();
-
-        const gCore = ctx.createRadialGradient(node.x - coreR * 0.2, node.y - coreR * 0.2, 0, node.x, node.y, coreR);
-        const coreOpacity = isFilteredOut ? 0.4 : 1;
-        gCore.addColorStop(0, `rgba(${a.r},${a.g},${a.b},${coreOpacity})`);
-        gCore.addColorStop(1, `rgba(${b.r},${b.g},${b.b},${coreOpacity * 0.95})`);
-        ctx.fillStyle = gCore; ctx.beginPath(); ctx.arc(node.x, node.y, coreR, 0, Math.PI * 2); ctx.fill();
-
-        if (scale > 0.45 || isHovered || isMatched || isDragged) {
-          ctx.font = `500 12px "SF Pro Text", -apple-system, sans-serif`;
-          ctx.fillStyle = isMatched ? `rgba(${a.r},${a.g},${a.b},1)` : (isHovered || isDragged) ? "#fff" : "rgba(255,255,255,0.25)";
-          ctx.textAlign = "center"; ctx.fillText(node.label, node.x, node.y + coreR + 24);
-        }
-      });
-      ctx.restore();
-    };
-    render();
-  }, [nodes, edges, scale, offset, hoveredNode, selectedNode, draggedNode, bgHue, filteredNodeIds]);
-
-  useEffect(() => {
-    const update = () => containerRef.current && setDimensions({ width: containerRef.current.clientWidth, height: containerRef.current.clientHeight });
-    window.addEventListener("resize", update); update();
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  // --- Input Handling for Dragging ---
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (hoveredNode) {
-      setDraggedNode(hoveredNode.id);
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = (e.clientX - rect.left - offset.x) / scale;
-    const y = (e.clientY - rect.top - offset.y) / scale;
-
-    if (draggedNode) {
-      setNodes(prev => prev.map(n => n.id === draggedNode ? { ...n, x, y, vx: 0, vy: 0 } : n));
-    } else {
-      setHoveredNode(nodes.find(n => Math.hypot(n.x - x, n.y - y) < n.radius * 6) || null);
-      if (e.buttons === 1) {
-        setOffset(prev => ({ x: prev.x + e.movementX, y: prev.y + e.movementY }));
+      // 3. PHYSICS
+      for (const n of nodes) {
+        n.vx += (dimensions.width / 2 - n.x) * 0.0004;
+        n.vy += (dimensions.height / 2 - n.y) * 0.0004;
+        n.vx *= 0.9; n.vy *= 0.9;
+        n.x += n.vx; n.y += n.vy;
       }
-    }
-  };
+      for (const e of edges) {
+        const s = nodes.find(n => n.id === e.source), t = nodes.find(n => n.id === e.target);
+        if (s && t) {
+          const dx = t.x - s.x, dy = t.y - s.y, d = Math.sqrt(dx*dx + dy*dy) || 1;
+          const f = (d - (e.type === 'discovery' ? 180 : 120)) * 0.006;
+          s.vx += (dx/d) * f; s.vy += (dy/d) * f;
+          t.vx -= (dx/d) * f; t.vy -= (dy/d) * f;
+        }
+      }
 
-  const handleMouseUp = () => setDraggedNode(null);
+      // 4. DRAWING
+      const pulse = Math.sin(timeRef.current * 3.5) * 0.5 + 0.5;
+
+      for (const e of edges) {
+        const s = nodes.find(n => n.id === e.source), t = nodes.find(n => n.id === e.target);
+        if (!s || !t) continue;
+        const active = selectedNodeId === s.id || selectedNodeId === t.id;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
+        if (e.type === 'discovery') {
+          ctx.setLineDash([6, 4]); ctx.lineDashOffset = -timeRef.current * 20;
+          ctx.strokeStyle = active ? `rgba(168, 85, 247, ${0.3 + pulse * 0.5})` : "rgba(168, 85, 247, 0.1)";
+          ctx.lineWidth = active ? 2 : 1;
+        } else {
+          ctx.setLineDash([]); ctx.strokeStyle = active ? "rgba(59, 130, 246, 0.4)" : COLORS.edge;
+          ctx.lineWidth = 1;
+        }
+        ctx.stroke();
+      }
+
+      for (const n of nodes) {
+        const isMatch = searchQuery && n.label.toLowerCase().includes(searchQuery.toLowerCase());
+        const isSelected = selectedNodeId === n.id;
+        const opacity = (!searchQuery || isMatch || isSelected) ? 1 : 0.2;
+
+        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.radius * 4);
+        g.addColorStop(0, `rgba(${n.baseColor.r},${n.baseColor.g},${n.baseColor.b},${(isSelected || isMatch) ? 0.3 : 0.08 * opacity})`);
+        g.addColorStop(1, "transparent");
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, n.radius * 4, 0, Math.PI * 2); ctx.fill();
+
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.radius * (isSelected ? 1.3 : 1), 0, Math.PI * 2);
+        ctx.fillStyle = isSelected || isMatch ? "#fff" : `rgba(${n.baseColor.r}, ${n.baseColor.g}, ${n.baseColor.b}, ${opacity})`;
+        ctx.fill();
+
+        if (scale > 0.6 || isMatch || isSelected) {
+          ctx.fillStyle = isSelected ? "#fff" : `rgba(255,255,255,${0.5 * opacity})`;
+          ctx.font = isSelected ? "bold 11px Inter" : "10px Inter";
+          ctx.textAlign = "center"; ctx.fillText(n.label, n.x, n.y + 22);
+        }
+      }
+      animationRef.current = requestAnimationFrame(run);
+    };
+    animationRef.current = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(animationRef.current);
+  }, [offset, scale, searchQuery, selectedNodeId, dpr, dimensions]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-[#020204] rounded-xl overflow-hidden border border-white/5 shadow-2xl">
+    <div ref={containerRef} className="relative w-full h-full bg-[#020204] rounded-xl overflow-hidden border border-white/5">
       <canvas
         ref={canvasRef}
-        className="w-full h-full touch-none cursor-grab active:cursor-grabbing"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={(e) => setScale(s => Math.max(0.1, Math.min(4, s - e.deltaY * 0.0012)))}
-        onClick={() => !draggedNode && setSelectedNode(hoveredNode)}
+        className="w-full h-full cursor-crosshair touch-none"
+        width={dimensions.width * dpr}
+        height={dimensions.height * dpr}
+        onMouseDown={(e) => {
+          if (e.buttons === 1) {
+            const rect = canvasRef.current!.getBoundingClientRect();
+            const x = (e.clientX - rect.left - offset.x) / scale;
+            const y = (e.clientY - rect.top - offset.y) / scale;
+            const hit = nodesRef.current.find(n => Math.hypot(n.x - x, n.y - y) < 25);
+            setSelectedNodeId(hit ? hit.id : null);
+          }
+        }}
+        onMouseMove={(e) => { if (e.buttons === 1 && !selectedNodeId) setOffset(prev => ({ x: prev.x + e.movementX, y: prev.y + e.movementY })); }}
+        onWheel={(e) => setScale(s => Math.max(0.1, Math.min(4, s - e.deltaY * 0.001)))}
       />
 
-      <div className="absolute top-5 left-5 flex items-center gap-3 bg-white/4 backdrop-blur-3xl border border-white/10 p-2 pl-5 rounded-full pointer-events-auto group focus-within:bg-white/8 transition-all shadow-xl">
-        <Command className="w-3 h-3 text-zinc-500 group-focus-within:text-white transition-colors" />
-        <Input
-          placeholder="Search Index..."
-          className="h-7 w-60 bg-transparent border-none text-sm text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-0 p-0"
+      <div className="absolute top-6 left-6 flex items-center gap-3 bg-white/5 backdrop-blur-3xl border border-white/10 p-2 pl-5 rounded-full w-80">
+        <Search className="w-3.5 h-3.5 text-zinc-500" />
+        <Input 
+          placeholder="Search Graph..." 
+          className="h-7 bg-transparent border-none text-white text-sm focus-visible:ring-0 p-0"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
-        {searchQuery && (
-          <button onClick={() => setSearchQuery("")} className="pr-3 text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>
-        )}
+        {isMapping && <Loader2 className="w-4 h-4 text-purple-400 animate-spin mr-2" />}
       </div>
 
       <AnimatePresence>
-        {selectedNode && (
-          <motion.div
+        {selectedNodeId && !selectedNodeId.startsWith('tag-') && (
+          <motion.div 
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-10 right-10 w-80 bg-[#111113]/90 backdrop-blur-3xl rounded-[2.5rem] border border-white/10 p-8 shadow-2xl"
+            className="absolute bottom-10 right-10 w-80 bg-[#111113]/90 backdrop-blur-3xl border border-white/10 p-8 rounded-[2.5rem] shadow-2xl"
           >
             <div className="flex justify-between items-start mb-6">
-              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
-                <ExternalLink className="w-5 h-5 text-zinc-400" />
-              </div>
-              <button onClick={() => setSelectedNode(null)} className="p-1 text-zinc-500 hover:text-white"><X className="w-5 h-5" /></button>
+              <Zap className="w-5 h-5 text-purple-400" />
+              <button onClick={() => setSelectedNodeId(null)} className="text-zinc-500 hover:text-white transition-colors"><X className="w-6 h-6"/></button>
             </div>
-            <h3 className="text-white font-medium text-xl leading-tight mb-1">{selectedNode.label}</h3>
-            <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold mb-8 opacity-60">ID // {selectedNode.id.slice(0, 8)}</p>
-            <Button onClick={() => onSelectNote?.(selectedNode.id)} className="w-full h-12 rounded-xl bg-white text-black font-bold text-xs hover:bg-zinc-200 transition-all active:scale-[0.98]">Reveal Details</Button>
+            <h3 className="text-white font-medium text-xl leading-tight mb-2">{nodesRef.current.find(n => n.id === selectedNodeId)?.label}</h3>
+            <p className="text-zinc-500 text-[10px] tracking-widest uppercase font-bold mb-8">Discovery Engine Active</p>
+            <Button className="w-full bg-white text-black font-extrabold text-xs h-12 rounded-xl hover:bg-zinc-200 transition-all" onClick={() => onSelectNote?.(selectedNodeId)}>
+              OPEN DOCUMENT
+            </Button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className="absolute bottom-5 left-5">
-        <Button variant="outline" size="icon" onClick={() => { setScale(1); setOffset({ x: 0, y: 0 }); }} className="rounded-2xl w-11 h-11 bg-white/3 border-white/10 text-zinc-500 hover:text-white backdrop-blur-3xl shadow-xl"><RotateCcw className="w-4 h-4" /></Button>
+      <div className="absolute bottom-6 left-6">
+        <Button variant="ghost" size="icon" onClick={() => { setScale(1); setOffset({ x: 0, y: 0 }); }} className="rounded-2xl w-12 h-12 bg-white/5 border border-white/10 text-zinc-400 hover:text-white">
+          <RotateCcw className="w-5 h-5" />
+        </Button>
       </div>
     </div>
   );
