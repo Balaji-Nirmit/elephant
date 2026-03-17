@@ -82,7 +82,7 @@ const ImageTextBlock = ({
             <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="relative rounded-2xl overflow-hidden bg-card border border-border/20 shadow-sm hover:shadow-lg transition-shadow duration-500"
+                className="relative rounded-2xl overflow-hidden bg-card border border-border/20 shadow-sm transition-shadow duration-500"
                 onMouseEnter={() => setHoverCard(true)}
                 onMouseLeave={() => setHoverCard(false)}
             >
