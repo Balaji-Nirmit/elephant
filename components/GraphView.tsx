@@ -25,7 +25,7 @@ const GraphView = ({ onSelectNote }: { onSelectNote?: (id: string) => void }) =>
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
   const timeRef = useRef<number>(0);
-  const { noteIndexes } = useNotesContext();
+  const { noteIndexes, folders } = useNotesContext();
 
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<{ source: string; target: string }[]>([]);
@@ -37,6 +37,12 @@ const GraphView = ({ onSelectNote }: { onSelectNote?: (id: string) => void }) =>
   const [searchQuery, setSearchQuery] = useState("");
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [bgHue, setBgHue] = useState<RGB>(COLORS.blue.base);
+
+  const folderMap = useMemo(() => {
+    const map = new Map<string, string>();
+    folders.forEach(f => map.set(f.id, f.name));
+    return map;
+  }, [folders]);
 
   const filteredNodeIds = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -74,9 +80,12 @@ const GraphView = ({ onSelectNote }: { onSelectNote?: (id: string) => void }) =>
     }));
 
     // 3. Build Folder Nodes
-    const folderNames = Array.from(new Set(noteIndexes.map(n => n.folderId).filter(Boolean)));
-    const folderNodes: GraphNode[] = folderNames.map(f => ({
-      id: `folder-${f}`, label: f || "General", x: Math.random() * 800, y: Math.random() * 600,
+    const folderIds = Array.from(new Set(noteIndexes.map(n => n.folderId).filter(Boolean)));
+    const folderNodes: GraphNode[] = folderIds.map(fId => ({
+      id: `folder-${fId}`,
+      // Look up name from map, fallback to ID, then "General"
+      label: folderMap.get(fId!) || fId || "General",
+      x: Math.random() * 800, y: Math.random() * 600,
       vx: 0, vy: 0, baseColor: COLORS.folder.base, accentColor: COLORS.folder.accent, radius: 15, type: "folder"
     }));
 
@@ -87,19 +96,19 @@ const GraphView = ({ onSelectNote }: { onSelectNote?: (id: string) => void }) =>
       .filter(n => n.folderId)
       .map(n => ({ source: n.id, target: `folder-${n.folderId}` }));
 
-    const tagEdges = noteIndexes.flatMap(note => 
+    const tagEdges = noteIndexes.flatMap(note =>
       note.tags.map(t => ({ source: note.id, target: `tag-${t.label}` }))
     );
 
     setEdges([...tagEdges, ...folderEdges]);
-  }, [noteIndexes]);
+  }, [noteIndexes, folderMap]);
 
   useEffect(() => {
     const runPhysics = () => {
       timeRef.current += 0.01;
       setNodes(prev => {
         const next = prev.map(n => ({ ...n }));
-        
+
         for (let i = 0; i < next.length; i++) {
           if (next[i].id === draggedNode) continue;
           for (let j = i + 1; j < next.length; j++) {
@@ -213,14 +222,14 @@ const GraphView = ({ onSelectNote }: { onSelectNote?: (id: string) => void }) =>
         const coreOpacity = isFilteredOut ? 0.2 : (node.type === 'folder' ? 0.4 : 1);
         gCore.addColorStop(0, `rgba(${a.r},${a.g},${a.b},${coreOpacity})`);
         gCore.addColorStop(1, `rgba(${b.r},${b.g},${b.b},${coreOpacity * 0.95})`);
-        
-        ctx.fillStyle = gCore; 
+
+        ctx.fillStyle = gCore;
         if (node.type === 'folder') {
-            ctx.strokeStyle = `rgba(${a.r},${a.g},${a.b}, 0.8)`;
-            ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(node.x, node.y, coreR, 0, Math.PI * 2); ctx.stroke();
+          ctx.strokeStyle = `rgba(${a.r},${a.g},${a.b}, 0.8)`;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(node.x, node.y, coreR, 0, Math.PI * 2); ctx.stroke();
         } else {
-            ctx.beginPath(); ctx.arc(node.x, node.y, coreR, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(node.x, node.y, coreR, 0, Math.PI * 2); ctx.fill();
         }
 
         if (scale > 0.45 || isHovered || isMatched || isDragged) {
@@ -299,10 +308,10 @@ const GraphView = ({ onSelectNote }: { onSelectNote?: (id: string) => void }) =>
             </div>
             <h3 className="text-white font-medium text-xl leading-tight mb-1">{selectedNode.label}</h3>
             <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold mb-8 opacity-60">
-                {selectedNode.type.toUpperCase()} // {selectedNode.id.slice(0, 8)}
+              {selectedNode.type.toUpperCase()} // {selectedNode.id.slice(0, 8)}
             </p>
             {selectedNode.type === 'note' && (
-                <Button onClick={() => onSelectNote?.(selectedNode.id)} className="w-full h-12 rounded-xl bg-white text-black font-bold text-xs hover:bg-zinc-200 transition-all active:scale-[0.98]">Reveal Details</Button>
+              <Button onClick={() => onSelectNote?.(selectedNode.id)} className="w-full h-12 rounded-xl bg-white text-black font-bold text-xs hover:bg-zinc-200 transition-all active:scale-[0.98]">Reveal Details</Button>
             )}
           </motion.div>
         )}
