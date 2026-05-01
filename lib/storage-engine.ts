@@ -11,7 +11,7 @@ export type SyncProgress = { current: number; total: number };
 const ConflictManager = {
   async resolve(fileName: string, localData: any, incomingCloudData: any): Promise<any> {
     // Current behavior: Cloud version takes precedence if conflict check is triggered
-    return incomingCloudData; 
+    return incomingCloudData;
   }
 };
 
@@ -20,7 +20,7 @@ const ConflictManager = {
  * Purely local right now. Flip 'isEnabled' to true and add API calls here to re-enable sync.
  */
 const CloudProvider = {
-  isEnabled: false, 
+  isEnabled: false,
 
   async upload(fileName: string, data: any): Promise<{ id: string; v: number } | null> {
     if (!this.isEnabled) return null;
@@ -30,7 +30,7 @@ const CloudProvider = {
 
   async fetchLatest(fileName: string): Promise<any | null> {
     if (!this.isEnabled) return null;
-    return null; 
+    return null;
   },
 
   async delete(cloudId: string): Promise<void> {
@@ -63,7 +63,7 @@ export const StorageEngine = {
       const root = await getRoot();
       try {
         await root.getDirectoryHandle(NOTES_DIR, { create: true });
-        
+
         // Load the journal (manifest)
         const localManifest = await this._readLocal(MANIFEST_FILE);
         if (localManifest) {
@@ -72,7 +72,7 @@ export const StorageEngine = {
           manifest = {};
           await this._persistManifest();
         }
-        
+
         this._emitStatus(CloudProvider.isEnabled ? "synced" : "nocloud");
       } catch (e) {
         console.error("Elephant Storage Init Error:", e);
@@ -89,7 +89,7 @@ export const StorageEngine = {
     await this.init();
     try {
       const now = Date.now();
-      
+
       // Update Versioning
       if (!manifest[fileName]) manifest[fileName] = { id: "", dirty: true, ts: now };
       manifest[fileName].ts = now;
@@ -152,7 +152,7 @@ export const StorageEngine = {
     const root = await getRoot();
     const dir = isNote ? await root.getDirectoryHandle(NOTES_DIR) : root;
     const name = isNote && !fileName.endsWith('.json') ? `${fileName}.json` : fileName;
-    
+
     const handle = await dir.getFileHandle(name, { create: true });
     const writable = await handle.createWritable();
     await writable.write(JSON.stringify(data));
@@ -184,7 +184,7 @@ export const StorageEngine = {
   async loadFolders(): Promise<Folder[]> { return await this._readLocal(FOLDERS_FILE) || []; },
   async loadCalendars(): Promise<CalendarEvent[]> { return await this._readLocal(CALENDAR_FILE) || []; },
   async loadDecks(): Promise<FlashcardDeck[]> { return await this._readLocal(SLIDEDECK_FILE) || []; },
-  
+
   async loadNoteBlocks(id: string): Promise<NoteBlock[]> {
     const local = await this._readLocal(id, true);
     if (local) return local;
@@ -216,8 +216,8 @@ export const StorageEngine = {
     saveTimeouts.set(name, timeout);
   },
 
-  _emitStatus(s: SyncStatus) { 
-    if (statusListener) statusListener(s); 
+  _emitStatus(s: SyncStatus) {
+    if (statusListener) statusListener(s);
   },
 
   _emitProgress(current: number, total: number) {
@@ -234,7 +234,7 @@ export const StorageEngine = {
       const root = await getRoot();
       const dir = await root.getDirectoryHandle(NOTES_DIR);
       await dir.removeEntry(`${id}.json`);
-      
+
       const cloudId = manifest[id]?.id;
       delete manifest[id];
       await this._persistManifest();
@@ -248,5 +248,63 @@ export const StorageEngine = {
     } finally {
       this._emitProgress(0, 0);
     }
-  }
+  },
+
+  /**
+   * FILE UPLOADS
+   */
+  async getMediaUrl(fileName: string): Promise<string | null> {
+    try {
+      const root = await navigator.storage.getDirectory();
+      const mediaDir = await root.getDirectoryHandle("media");
+      const fileHandle = await mediaDir.getFileHandle(fileName);
+      const file = await fileHandle.getFile();
+      return URL.createObjectURL(file);
+    } catch (e) {
+      console.error("Failed to load media from OPFS:", fileName);
+      return null;
+    }
+  },
+
+  async saveMedia(file: File): Promise<string> {
+    await this.init();
+    const root = await navigator.storage.getDirectory();
+    const mediaDir = await root.getDirectoryHandle("media", { create: true });
+    const safeName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
+    const fileHandle = await mediaDir.getFileHandle(safeName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(file);
+    await writable.close();
+    return safeName;
+  },
+
+  listAllFiles: async (): Promise<string[]> => {
+    try {
+      const root = await navigator.storage.getDirectory();
+      let mediaDir;
+      try {
+        mediaDir = await root.getDirectoryHandle('media', { create: false });
+      } catch (e) {
+        console.warn("Media folder does not exist yet.");
+        return [];
+      }
+      const files: string[] = [];
+
+      // 2. Iterate specifically through the media directory
+      // @ts-ignore
+      const entries = mediaDir.entries();
+
+      // @ts-ignore
+      for await (const [name, handle] of entries) {
+        if (handle.kind === 'file') {
+          files.push(`${name}`);
+        }
+      }
+      console.log("Media Library items found:", files);
+      return files;
+    } catch (error) {
+      console.error("Failed to list OPFS media files:", error);
+      return [];
+    }
+  },
 };

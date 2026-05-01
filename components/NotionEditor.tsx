@@ -71,6 +71,12 @@ import ComparisonTableBlock from "./ComparisonTableBlock";
 import StepsBlock from "./StepsBlock";
 import SwotBlock from "./SwotBlock";
 import ImageTextBlock from "./ImageTextBlock";
+import FileBlock from "./FileBlock";
+import { StorageEngine } from "@/lib/storage-engine";
+import { MediaUploader } from "./MediaUploader";
+import PersistentImage from "./PersistentImage";
+import PersistentVideo from "./PersistentVideo";
+import PersistentAudio from "./PersistentAudio";
 
 interface NotionEditorProps {
   blocks: NoteBlock[];
@@ -476,15 +482,18 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
   };
 
   const getVideoEmbedUrl = (url: string) => {
-    // YouTube
-    const youtubeMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
-    if (youtubeMatch) {
-      return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
-    }
-    // Vimeo
-    const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
-    if (vimeoMatch) {
-      return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+    if (!url) return null;
+    if (url.startsWith('http') || url.startsWith('blob:')) {
+      // YouTube
+      const youtubeMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
+      if (youtubeMatch) {
+        return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+      }
+      // Vimeo
+      const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
+      if (vimeoMatch) {
+        return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+      }
     }
     return null;
   };
@@ -964,7 +973,8 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
           <div className="py-2">
             {block.imageUrl ? (
               <div className="relative group/image rounded-lg overflow-hidden">
-                <img
+                {/* Using PersistentImage to ensure local files resolve correctly */}
+                <PersistentImage
                   src={block.imageUrl}
                   alt="Embedded"
                   className="w-full max-h-100 object-cover rounded-lg cursor-pointer"
@@ -995,15 +1005,14 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
               </div>
             ) : (
               <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
-                <Image className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                <input
-                  type="text"
+                <Image className="w-10 h-10 mx-auto text-muted-foreground/20 mb-3" />
+                {/* Replaced input with MediaUploader */}
+                <MediaUploader
+                  currentValue={block.imageUrl}
+                  accept="image/*"
                   placeholder="Paste image URL and press Enter..."
-                  className="w-full max-w-md mx-auto px-4 py-2 bg-muted/50 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      updateBlock(block.id, { imageUrl: (e.target as HTMLInputElement).value });
-                    }
+                  onUploadComplete={(newUrlOrPath) => {
+                    updateBlock(block.id, { imageUrl: newUrlOrPath });
                   }}
                 />
               </div>
@@ -1054,29 +1063,44 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
         );
 
       case "video":
+        const embedUrl = getVideoEmbedUrl(block.videoUrl || '');
+
         return (
           <div className="py-2">
-            {block.videoUrl && getVideoEmbedUrl(block.videoUrl) ? (
-              <div className="relative rounded-lg overflow-hidden aspect-video">
-                <iframe
-                  src={getVideoEmbedUrl(block.videoUrl)!}
-                  className="w-full h-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
+            {block.videoUrl ? (
+              <div className="relative rounded-4xl overflow-hidden aspect-video bg-black shadow-2xl border border-border/50 group">
+                {embedUrl ? (
+                  /* External YouTube/Vimeo */
+                  <iframe
+                    src={embedUrl}
+                    className="w-full h-full border-none"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  /* Local OPFS File */
+                  <PersistentVideo
+                    src={block.videoUrl}
+                    className="w-full h-full object-contain"
+                  />
+                )}
+
+                <button
+                  onClick={() => updateBlock(block.id, { videoUrl: undefined })}
+                  className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             ) : (
+              /* Empty Uploader State */
               <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
-                <Play className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                <input
-                  type="text"
-                  placeholder="Paste YouTube or Vimeo URL..."
-                  className="w-full max-w-md mx-auto px-4 py-2 bg-muted/50 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      updateBlock(block.id, { videoUrl: (e.target as HTMLInputElement).value });
-                    }
-                  }}
+                <Play className="w-12 h-12 mx-auto text-muted-foreground/20 mb-6" />
+                <MediaUploader
+                  placeholder="Paste YouTube/Vimeo link or upload..."
+                  currentValue={block.videoUrl}
+                  onUploadComplete={(url) => updateBlock(block.id, { videoUrl: url })}
+                  accept="video/*"
                 />
               </div>
             )}
@@ -1301,71 +1325,50 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
 
       case "file":
         return (
-          <div className="py-2">
-            {block.fileUrl ? (
-              <motion.a
-                href={block.fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors group/file"
-                whileHover={{ scale: 1.01 }}
-              >
-                <div className="p-3 bg-primary/10 rounded-lg">
-                  <Paperclip className="w-5 h-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{block.fileName || "Attached file"}</p>
-                  <p className="text-xs text-muted-foreground truncate">{block.fileUrl}</p>
-                </div>
-                <ExternalLink className="w-4 h-4 text-muted-foreground opacity-0 group-hover/file:opacity-100" />
-              </motion.a>
-            ) : (
-              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-6 text-center">
-                <Paperclip className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
-                <input
-                  type="text"
-                  placeholder="Paste file URL and press Enter..."
-                  className="w-full max-w-md mx-auto px-4 py-2 bg-muted/50 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const url = (e.target as HTMLInputElement).value;
-                      const fileName = url.split('/').pop() || 'File';
-                      updateBlock(block.id, { fileUrl: url, fileName });
-                    }
-                  }}
-                />
-              </div>
-            )}
-          </div>
+          <FileBlock
+            fileUrl={block.fileUrl || ""}
+            fileName={block.fileName || ""}
+            onUpdate={(updates) => updateBlock(block.id, updates)}
+          />
         );
 
       case "audio":
         return (
           <div className="py-2">
             {block.audioUrl ? (
-              <div className="p-4 bg-linear-to-r from-primary/5 to-primary/10 rounded-lg border border-primary/20">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="p-2 bg-primary/20 rounded-full">
-                    <Volume2 className="w-5 h-5 text-primary" />
-                  </div>
-                  <span className="text-sm font-medium truncate">{block.audioUrl.split('/').pop()}</span>
+              /* Minimalist "Single Row" Player */
+              <div className="group relative flex items-center gap-4 p-3 bg-secondary/30 backdrop-blur-md rounded-[1.5rem] border border-border/40 transition-all duration-300 hover:border-primary/20">
+
+                {/* 1. Icon */}
+                <div className="shrink-0 w-10 h-10 bg-card rounded-xl border border-border/50 flex items-center justify-center shadow-sm">
+                  <Music className="w-5 h-5 text-primary/70" />
                 </div>
-                <audio controls className="w-full h-10" src={block.audioUrl}>
-                  Your browser does not support audio.
-                </audio>
+
+                {/* 2. Player - Fills the middle space */}
+                <div className="flex-1 min-w-0">
+                  <PersistentAudio
+                    src={block.audioUrl}
+                    className="w-full h-8 opacity-80 hover:opacity-100 transition-opacity"
+                  />
+                </div>
+
+                {/* 3. Remove Button */}
+                <button
+                  onClick={() => updateBlock(block.id, { audioUrl: undefined })}
+                  className="shrink-0 p-2 text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 rounded-full transition-all active:scale-90"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             ) : (
-              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-6 text-center">
-                <Music className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
-                <input
-                  type="text"
-                  placeholder="Paste audio URL (MP3, WAV, etc.)..."
-                  className="w-full max-w-md mx-auto px-4 py-2 bg-muted/50 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      updateBlock(block.id, { audioUrl: (e.target as HTMLInputElement).value });
-                    }
-                  }}
+              /* Standard Empty State */
+              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
+                <Music className="w-10 h-10 mx-auto text-muted-foreground/20 mb-3" />
+                <MediaUploader
+                  placeholder="Audio URL or upload..."
+                  currentValue={block.audioUrl}
+                  onUploadComplete={(url) => updateBlock(block.id, { audioUrl: url })}
+                  accept="audio/*"
                 />
               </div>
             )}
@@ -1690,21 +1693,31 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
           <div className="py-3">
             <div className="grid grid-cols-3 gap-2">
               {galleryImages.map((img, index) => (
-                <div key={img.id} className="relative group/img aspect-square">
-                  <img
+                /* 
+                   1. THE TRIGGER: This outer div has aspect-square. 
+                   It NEVER moves and its size is fixed by the grid. 
+                */
+                <div key={img.id} className="relative group/img aspect-square overflow-hidden rounded-lg bg-muted/10">
+                  <PersistentImage
                     src={img.url}
                     alt={img.caption || "Gallery image"}
-                    className="w-full h-full object-cover rounded-lg cursor-pointer"
+                    className="w-full h-full object-cover cursor-pointer"
                     onClick={() => openLightbox(galleryImages, index)}
                   />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center rounded-lg gap-2 pointer-events-none">
+
+                    /*
+                  2. THE OVERLAY:
+                  - Added 'pointer-events-none' so the mouse "sees through" to the image.
+                  - Added 'z-10' to ensure it sits on top properly.
+                  */
+                  <div className="absolute inset-0 z-10 bg-black/50 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2 pointer-events-none">
                     <div className="flex gap-2 pointer-events-auto">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           openLightbox(galleryImages, index);
                         }}
-                        className="p-2 bg-white/10 rounded-lg hover:bg-white/20"
+                        className="p-2 bg-white/20 backdrop-blur-md rounded-lg hover:bg-white/30 transition-colors"
                       >
                         <ZoomIn className="w-4 h-4 text-white" />
                       </button>
@@ -1714,7 +1727,7 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
                           const newImages = galleryImages.filter((_, i) => i !== index);
                           updateBlock(block.id, { galleryImages: newImages });
                         }}
-                        className="p-2 bg-white/10 rounded-lg hover:bg-white/20"
+                        className="p-2 bg-white/20 backdrop-blur-md rounded-lg hover:bg-white/30 transition-colors"
                       >
                         <Trash2 className="w-4 h-4 text-white" />
                       </button>
@@ -1722,19 +1735,19 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
                   </div>
                 </div>
               ))}
-              <div className="aspect-square border-2 border-dashed border-muted-foreground/20 rounded-lg flex items-center justify-center hover:border-primary/30 transition-colors">
-                <input
-                  type="text"
-                  placeholder="Paste URL"
-                  className="w-full h-full text-center text-xs bg-transparent outline-none p-2"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const url = (e.target as HTMLInputElement).value;
-                      if (url) {
-                        const newImage = { id: crypto.randomUUID(), url };
-                        updateBlock(block.id, { galleryImages: [...galleryImages, newImage] });
-                        (e.target as HTMLInputElement).value = "";
-                      }
+
+              {/* Add Image Slot */}
+              <div className="aspect-square border-2 border-dashed border-muted-foreground/20 rounded-lg flex items-center justify-center hover:border-primary/30 transition-colors bg-muted/5">
+                <MediaUploader
+                  currentValue=""
+                  accept="image/*"
+                  placeholder="URL..."
+                  onUploadComplete={(urlOrPath) => {
+                    if (urlOrPath) {
+                      const newImage = { id: crypto.randomUUID(), url: urlOrPath };
+                      updateBlock(block.id, {
+                        galleryImages: [...galleryImages, newImage]
+                      });
                     }
                   }}
                 />
