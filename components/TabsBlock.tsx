@@ -89,7 +89,7 @@ const TabsBlock = ({ tabs, onChange }: TabsBlockProps) => {
             const accent = getAccent(index);
             return (
               <motion.div key={tab.id} layout className="relative shrink-0">
-                <motion.button
+                <motion.div
                   onClick={() => {
                     if (editingTabId !== tab.id) setActiveTabId(tab.id);
                   }}
@@ -146,7 +146,7 @@ const TabsBlock = ({ tabs, onChange }: TabsBlockProps) => {
                       </motion.button>
                     )}
                   </span>
-                </motion.button>
+                </motion.div>
               </motion.div>
             );
           })}
