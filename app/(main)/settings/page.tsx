@@ -93,7 +93,7 @@ const Settings = () => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `elephant-backup-${new Date().toISOString().split('T')[0]}.zip`;
+            a.download = `ploopus-backup-${new Date().toISOString().split('T')[0]}.zip`;
             a.click();
             toast.success("Backup exported", { id: tid, position: "top-right" });
         } catch (e) { toast.error("Export failed", { id: tid, position: "top-right" }); }

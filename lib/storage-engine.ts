@@ -75,7 +75,7 @@ export const StorageEngine = {
 
         this._emitStatus(CloudProvider.isEnabled ? "synced" : "nocloud");
       } catch (e) {
-        console.error("Elephant Storage Init Error:", e);
+        console.error("Ploopus Storage Init Error:", e);
         this._emitStatus("error");
       }
     })();

@@ -107,7 +107,7 @@ const Footer = ({ signinwithgoogle }: { signinwithgoogle: () => {} }) => {
                                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-accent to-accent/70 shadow-lg">
                                     <FileText className="h-5 w-5 text-accent-foreground" />
                                 </div>
-                                <span className="text-lg font-bold text-white">NoteVault</span>
+                                <span className="text-lg font-bold text-white">Ploopus</span>
                             </motion.div>
                             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/40">
                                 The professional local-first workspace. 50+ formatting blocks and 30+ templates designed for speed, privacy, and creative freedom.
@@ -115,7 +115,7 @@ const Footer = ({ signinwithgoogle }: { signinwithgoogle: () => {} }) => {
 
                             <div className="mt-5 space-y-2">
                                 {[
-                                    { icon: Mail, text: "hello@notevault.app" },
+                                    { icon: Mail, text: "hello@Ploopus.app" },
                                     { icon: MapPin, text: "Privacy-first Infrastructure" },
                                 ].map(({ icon: Icon, text }) => (
                                     <div key={text} className="flex items-center gap-2 text-xs text-white/50">
@@ -184,7 +184,7 @@ const Footer = ({ signinwithgoogle }: { signinwithgoogle: () => {} }) => {
                         className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/8 pt-8 sm:mt-16 md:flex-row"
                     >
                         <div className="flex items-center gap-1.5 text-xs text-white/50">
-                            <span>© 2026 NoteVault. Built for</span>
+                            <span>© 2026 Ploopus. Built for</span>
                             <Heart className="h-3 w-3 fill-destructive/60 text-destructive/60" />
                             <span>digital sovereignty</span>
                         </div>

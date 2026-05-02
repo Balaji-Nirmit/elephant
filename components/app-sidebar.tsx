@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { Sidebar } from "./ui/sidebar";
 import { authClient } from "@/lib/auth-client";
+import Image from "next/image";
+import ploopusLogo from '@/public/ploopus_logo.webp';
 
 const MotionLink = motion.create(Link);
 
@@ -60,22 +62,22 @@ const AppSidebar = () => {
   ];
 
   const {
-      data: session,
-      isPending, //loading state
-      error, //error object
-      refetch //refetch the session
-    } = authClient.useSession()
-  
-    const router = useRouter();
-    const logout = async () => {
-      await authClient.signOut({
-        fetchOptions: {
-          onSuccess: () => {
-            router.push("/");
-          }
+    data: session,
+    isPending, //loading state
+    error, //error object
+    refetch //refetch the session
+  } = authClient.useSession()
+
+  const router = useRouter();
+  const logout = async () => {
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          router.push("/");
         }
-      })
-    }
+      }
+    })
+  }
 
   const isActive = (path: string) => pathname === path;
   const isNoteSection = pathname.startsWith("/note");
@@ -84,17 +86,26 @@ const AppSidebar = () => {
     <Sidebar>
       <aside className="w-full h-full bg-sidebar-gradient backdrop-blur-xl border-r border-white/10 flex flex-col shrink-0 shadow-2xl relative overflow-hidden">
         <div className="absolute -top-24 -left-24 w-48 h-48 bg-amber-500/10 rounded-full blur-[80px] pointer-events-none" />
-        
+
         {/* Logo */}
-        <div className="p-6 pb-8 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-linear-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.3)]">
-              <span className="text-white font-bold text-lg">🐘</span>
+        <div className="px-6 py-8 relative z-10">
+          <Link
+            href="/"
+            className="flex items-center justify-center gap-2 hover:opacity-90 transition-opacity w-fit"
+          >
+            <div className="relative w-12 h-12 flex">
+              <Image
+                src={ploopusLogo}
+                alt="Ploopus"
+                fill
+                className="object-contain"
+                priority
+              />
             </div>
-            <span className="text-xl font-semibold text-white tracking-tight">
-              Eleph<span className="text-amber-400">ant</span>
+            <span className="text-2xl font-bold text-white tracking-tight leading-none">
+              Ploo<span className="text-amber-400">pus</span>
             </span>
-          </div>
+          </Link>
         </div>
 
         {/* Navigation */}
@@ -103,11 +114,10 @@ const AppSidebar = () => {
             <MotionLink
               key={item.id}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
-                isActive(item.href) 
-                  ? "bg-white/15 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]" 
-                  : "text-white/70 hover:text-white hover:bg-white/10"
-              }`}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${isActive(item.href)
+                ? "bg-white/15 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]"
+                : "text-white/70 hover:text-white hover:bg-white/10"
+                }`}
               whileHover={{ x: 4 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -120,9 +130,8 @@ const AppSidebar = () => {
           <div className="pt-2">
             <motion.button
               onClick={() => setNoteExpanded(!noteExpanded)}
-              className={`flex items-center justify-between px-4 py-2.5 rounded-lg transition-all duration-200 w-full ${
-                isNoteSection ? "bg-white/15 text-white" : "text-white/70 hover:text-white hover:bg-white/10"
-              }`}
+              className={`flex items-center justify-between px-4 py-2.5 rounded-lg transition-all duration-200 w-full ${isNoteSection ? "bg-white/15 text-white" : "text-white/70 hover:text-white hover:bg-white/10"
+                }`}
               whileHover={{ x: 4 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -149,9 +158,8 @@ const AppSidebar = () => {
                       <MotionLink
                         key={item.id}
                         href={item.href}
-                        className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-all duration-200 text-sm ${
-                          isActive(item.href) ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"
-                        }`}
+                        className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-all duration-200 text-sm ${isActive(item.href) ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"
+                          }`}
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.05 }}
@@ -174,9 +182,8 @@ const AppSidebar = () => {
               <MotionLink
                 key={item.id}
                 href={item.href}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
-                  isActive(item.href) ? "bg-white/15 text-white" : "text-white/70 hover:text-white hover:bg-white/10"
-                }`}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${isActive(item.href) ? "bg-white/15 text-white" : "text-white/70 hover:text-white hover:bg-white/10"
+                  }`}
                 whileHover={{ x: 4 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -198,14 +205,14 @@ const AppSidebar = () => {
                 className="absolute bottom-full left-4 right-4 mb-2 bg-black/80 backdrop-blur-2xl border border-white/15 rounded-2xl overflow-hidden shadow-2xl z-50"
               >
                 <div className="p-2 space-y-1">
-                    <motion.button
-                      onClick={logout}
-                      className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm transition-colors text-red-400 hover:bg-red-500/10" 
-                      whileHover={{ x: 2 }}
-                    >
-                      <LogOut className="w-4 h-4" />
-                      <span className="font-medium">Logout</span>
-                    </motion.button>
+                  <motion.button
+                    onClick={logout}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm transition-colors text-red-400 hover:bg-red-500/10"
+                    whileHover={{ x: 2 }}
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="font-medium">Logout</span>
+                  </motion.button>
                 </div>
               </motion.div>
             )}
@@ -213,9 +220,8 @@ const AppSidebar = () => {
 
           <motion.div
             onClick={() => setProfileOpen(!profileOpen)}
-            className={`flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all border ${
-              profileOpen ? "bg-white/15 border-white/20" : "bg-white/5 border-white/10 hover:bg-white/10"
-            }`}
+            className={`flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all border ${profileOpen ? "bg-white/15 border-white/20" : "bg-white/5 border-white/10 hover:bg-white/10"
+              }`}
             whileHover={{ scale: 1.02, translateY: -2 }}
             whileTap={{ scale: 0.98 }}
           >
