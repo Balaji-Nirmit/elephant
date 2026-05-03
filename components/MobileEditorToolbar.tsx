@@ -1,10 +1,7 @@
 // ✅
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import {
-  Bold,
-  Italic,
-  Underline,
   Plus,
   ChevronDown,
 } from "lucide-react";
@@ -93,10 +90,6 @@ const MobileEditorToolbar = ({ onOpenBlockMenu, isEditing }: MobileEditorToolbar
     };
   }, [isEditing]);
 
-  const exec = useCallback((cmd: "bold" | "italic" | "underline") => {
-    document.execCommand(cmd, false);
-  }, []);
-
   if (!isEditing && bottomOffset === 0) return null;
 
   return (
@@ -105,7 +98,7 @@ const MobileEditorToolbar = ({ onOpenBlockMenu, isEditing }: MobileEditorToolbar
         initial={false}
         animate={{ y: 0 }}
         style={{ bottom: bottomOffset }}
-        className="fixed left-0 right-0 z-[9997] bg-card/95 backdrop-blur-md border-t border-border shadow-[0_-4px_20px_rgba(0,0,0,0.06)] pb-[env(safe-area-inset-bottom)]"
+        className="fixed left-0 right-0 z-9997 bg-card/95 backdrop-blur-md border-t border-border shadow-[0_-4px_20px_rgba(0,0,0,0.06)] pb-[env(safe-area-inset-bottom)]"
         onMouseDown={(e) => e.preventDefault()}
         onTouchStart={(e) => {
           const t = e.target as HTMLElement;
@@ -125,13 +118,6 @@ const MobileEditorToolbar = ({ onOpenBlockMenu, isEditing }: MobileEditorToolbar
             Block
             <ChevronDown className="w-3 h-3 opacity-70" />
           </button>
-
-          <div className="w-px h-5 bg-border mx-1 shrink-0" />
-
-          <ToolbarIcon icon={Bold} label="Bold" onClick={() => exec("bold")} />
-          <ToolbarIcon icon={Italic} label="Italic" onClick={() => exec("italic")} />
-          <ToolbarIcon icon={Underline} label="Underline" onClick={() => exec("underline")} />
-
         </div>
       </motion.div>
 
@@ -139,28 +125,5 @@ const MobileEditorToolbar = ({ onOpenBlockMenu, isEditing }: MobileEditorToolbar
     </>
   );
 };
-
-const ToolbarIcon = ({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: React.ElementType;
-  label: string;
-  onClick: () => void;
-}) => (
-  <button
-    onMouseDown={(e) => e.preventDefault()}
-    onTouchStart={(e) => {
-      e.preventDefault();
-      onClick();
-    }}
-    onClick={onClick}
-    aria-label={label}
-    className="h-9 w-9 flex items-center justify-center rounded-lg text-foreground hover:bg-muted active:scale-95 transition-all shrink-0"
-  >
-    <Icon className="w-4 h-4" />
-  </button>
-);
 
 export default MobileEditorToolbar;
