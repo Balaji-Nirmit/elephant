@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Plus, MoreHorizontal, Star, Share2, Clock, Focus, Minimize2, BookOpen, Sparkles, Undo2, Redo2, Download, FileText, FileCode, FileType } from "lucide-react";
+import { X, Plus, MoreHorizontal, Star, Share2, Clock, Focus, Minimize2, BookOpen, Sparkles, Undo2, Redo2, Download, FileText, FileCode, FileType, FileJsonIcon, File } from "lucide-react";
 import NotionEditor from "./NotionEditor";
 import FloatingToolbar from "./FloatingToolbar";
 import FindReplaceBar from "./FindReplaceBar";
@@ -307,35 +307,6 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
               >
                 <Download className="w-4 h-4" />
               </motion.button>
-              <AnimatePresence>
-                {showExportMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -5, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -5, scale: 0.95 }}
-                    className="absolute top-full right-0 mt-2 bg-card border border-border rounded-lg shadow-xl p-1 min-w-40 z-50"
-                  >
-                    <button
-                      onClick={() => { exportNote(note, "markdown"); setShowExportMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
-                    >
-                      <FileCode className="w-4 h-4" /> Markdown
-                    </button>
-                    <button
-                      onClick={() => { exportNote(note, "text"); setShowExportMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
-                    >
-                      <FileText className="w-4 h-4" /> Plain Text
-                    </button>
-                    <button
-                      onClick={() => { exportNote(note, "html"); setShowExportMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
-                    >
-                      <FileType className="w-4 h-4" /> HTML
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
 
             {/* <motion.button
@@ -421,6 +392,43 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
                   {index.length} section{index.length !== 1 ? 's' : ''}
                 </div>
               )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Export Menu */}
+        <AnimatePresence>
+          {showExportMenu && (
+            <motion.div
+              initial={{ opacity: 0, y: -5, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -5, scale: 0.95 }}
+              className="fixed right-6 top-16 p-2 z-50 w-51 max-h-96 bg-card border border-border rounded-lg shadow-lg overflow-hidden flex flex-col"
+            >
+              <button
+                onClick={() => { exportNote(note, "markdown"); setShowExportMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+              >
+                <FileCode className="w-4 h-4" /> Markdown
+              </button>
+              <button
+                onClick={() => { exportNote(note, "text"); setShowExportMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+              >
+                <FileText className="w-4 h-4" /> Plain Text
+              </button>
+              <button
+                onClick={() => { exportNote(note, "html"); setShowExportMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+              >
+                <FileType className="w-4 h-4" /> HTML
+              </button>
+              <button
+                onClick={() => { exportNote(note, "json"); setShowExportMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+              >
+                <FileJsonIcon className="w-4 h-4" /> JSON
+              </button>
             </motion.div>
           )}
         </AnimatePresence>

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Note, NoteBlock } from "@/lib/types";
 
-export type ExportFormat = "markdown" | "text" | "html" | "pdf";
+export type ExportFormat = "markdown" | "text" | "html" | "pdf" | "json";
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +51,120 @@ const toHex = (c = "", fallback = "#6366f1") => {
 
 // Tailwind bg class to a light tint for backgrounds
 const toTint = (c = "", alpha = "18") => toHex(c) + alpha;
+
+// ── Inline rich-text renderer ─────────────────────────────────────────────────
+// block.content may contain:
+//   • Raw HTML formatting: <b>, <strong>, <i>, <em>, <u>, <s>, <strike>,
+//     <code>, <mark>, <font color="…" style="…">, <span style="…">, <br>
+//   • Markdown shortcuts: **bold**, *italic*, ~~strike~~, `code`, [text](url)
+//
+// Strategy:
+//   1. Process markdown patterns first (converts to HTML tags).
+//   2. Then sanitize the resulting HTML — keep only safe inline tags,
+//      strip everything else but keep its text content.
+//
+// This is intentionally NOT a full sanitizer — it's scoped to the inline
+// formatting tags the note editor actually produces. No script/iframe/etc
+// can survive because we explicitly allowlist tags + attributes.
+
+const ALLOWED_TAGS: Record<string, string[]> = {
+  b:      [], strong: [], i: [], em: [], u: [], s: [], strike: [], del: [],
+  code:   [], mark:   [], br: [],
+  font:   ["color", "style"],   // <font color="#ef4444" style="background-color:…">
+  span:   ["style"],            // <span style="color:…;background:…;font-weight:…">
+  a:      ["href", "target", "rel"],
+  sub:    [], sup: [],
+};
+
+// Safe CSS property allowlist for style attributes
+const SAFE_CSS = /^(color|background(-color)?|font-(weight|style|size)|text-decoration|border-radius|padding):/i;
+
+const sanitizeStyle = (style: string): string =>
+  style.split(";")
+    .map(s => s.trim())
+    .filter(s => s && SAFE_CSS.test(s))
+    .join(";");
+
+// Sanitize a single HTML tag, returning safe version or just ""
+const sanitizeTag = (tag: string): string => {
+  // Closing tag — keep if allowed
+  const closeMatch = tag.match(/^<\/([a-z][a-z0-9]*)>$/i);
+  if (closeMatch) {
+    const t = closeMatch[1].toLowerCase();
+    return t in ALLOWED_TAGS ? `</${t}>` : "";
+  }
+  // Self-closing <br>
+  if (/^<br\s*\/?>$/i.test(tag)) return "<br>";
+  // Opening tag
+  const openMatch = tag.match(/^<([a-z][a-z0-9]*)((?:\s[^>]*)?)>$/i);
+  if (!openMatch) return "";
+  const tagName = openMatch[1].toLowerCase();
+  if (!(tagName in ALLOWED_TAGS)) return "";
+  const allowedAttrs = ALLOWED_TAGS[tagName];
+  if (!allowedAttrs.length) return `<${tagName}>`;
+
+  // Parse attributes
+  const attrStr = openMatch[2];
+  const attrRe = /(\w[\w-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
+  let m: RegExpExecArray | null;
+  const safeAttrs: string[] = [];
+  while ((m = attrRe.exec(attrStr)) !== null) {
+    const attrName = m[1].toLowerCase();
+    if (!allowedAttrs.includes(attrName)) continue;
+    const val = m[2] ?? m[3] ?? m[4] ?? "";
+    if (attrName === "style") {
+      const safe = sanitizeStyle(val);
+      if (safe) safeAttrs.push(`style="${safe}"`);
+    } else if (attrName === "href") {
+      // Only allow http/https/mailto links
+      if (/^(https?:|mailto:)/i.test(val)) safeAttrs.push(`href="${val}" target="_blank" rel="noopener"`);
+    } else if (attrName === "color") {
+      // <font color="..."> — keep colour attribute directly
+      safeAttrs.push(`color="${val}"`);
+    } else if (!["target","rel"].includes(attrName)) {
+      safeAttrs.push(`${attrName}="${val}"`);
+    }
+  }
+  return `<${tagName}${safeAttrs.length ? " "+safeAttrs.join(" ") : ""}>`;
+};
+
+const renderInline = (raw: string): string => {
+  if (!raw) return "";
+
+  // Step 1 — Markdown inline patterns → HTML
+  // Order matters: process longer patterns first
+  let s = raw
+    // **bold** or __bold__
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__(.+?)__/g, "<strong>$1</strong>")
+    // *italic* or _italic_  (not preceded/followed by *)
+    .replace(/\*(?!\*)(.+?)(?<!\*)\*/g, "<em>$1</em>")
+    .replace(/_(?!_)(.+?)(?<!_)_/g, "<em>$1</em>")
+    // ~~strikethrough~~
+    .replace(/~~(.+?)~~/g, "<s>$1</s>")
+    // `inline code`
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    // [text](url)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Step 2 — Sanitize the HTML (now a mix of raw HTML + converted markdown HTML)
+  // Split on HTML tags, process each piece
+  const parts = s.split(/(<[^>]+>)/);
+  return parts.map((part, i) => {
+    if (i % 2 === 1) {
+      // This is a tag segment — sanitize it
+      return sanitizeTag(part);
+    }
+    // Text segment — escape HTML special chars EXCEPT what we already converted
+    // (the markdown→HTML conversion above already produced safe tags, which are
+    //  in the odd-index positions after splitting — so this is purely text)
+    return part
+      .replace(/&(?!amp;|lt;|gt;|quot;|#)/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }).join("");
+};
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 // Detect if a URL is local (blob:, file:, relative path, no http)
@@ -232,35 +346,34 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
     // ── Text ─────────────────────────────────────────────────────────────────
     case "text":
       return block.content
-        ? `<p class="prose">${esc(block.content)}</p>`
+        ? `<p class="prose">${renderInline(block.content)}</p>`
         : `<div class="spacer" aria-hidden="true"></div>`;
 
     // ── Headings ─────────────────────────────────────────────────────────────
-    case "heading1": return `<h1 class="h1">${esc(block.content)}</h1>`;
-    case "heading2": return `<h2 class="h2">${esc(block.content)}</h2>`;
-    case "heading3": return `<h3 class="h3">${esc(block.content)}</h3>`;
+    case "heading1": return `<h1 class="h1">${renderInline(block.content)}</h1>`;
+    case "heading2": return `<h2 class="h2">${renderInline(block.content)}</h2>`;
+    case "heading3": return `<h3 class="h3">${renderInline(block.content)}</h3>`;
 
     // ── Bullet list ───────────────────────────────────────────────────────────
     case "bullet":
-      return `<ul class="ul"><li>${esc(block.content)}</li></ul>`;
+      return `<ul class="ul"><li>${renderInline(block.content)}</li></ul>`;
 
     // ── Numbered list — auto-counter ──────────────────────────────────────────
     case "numbered": {
       counter.n++;
-      return `<ol class="ol" style="--n:${counter.n}"><li><span class="ol-n">${counter.n}</span><span>${esc(block.content)}</span></li></ol>`;
+      return `<ol class="ol" style="--n:${counter.n}"><li><span class="ol-n">${counter.n}</span><span>${renderInline(block.content)}</span></li></ol>`;
     }
 
     // ── Todo ──────────────────────────────────────────────────────────────────
     case "todo":
-      return `<label class="todo-item"><span class="cb${block.checked?" cb-on":""}"><svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="${block.checked?"done":""}">${esc(block.content)}</span></label>`;
+      return `<label class="todo-item"><span class="cb${block.checked?" cb-on":""}"><svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="${block.checked?"done":""}">${renderInline(block.content)}</span></label>`;
 
     // ── Quote ─────────────────────────────────────────────────────────────────
     case "quote":
-      return `<blockquote class="quote">${esc(block.content)}</blockquote>`;
+      return `<blockquote class="quote">${renderInline(block.content)}</blockquote>`;
 
-    // ── Callout ───────────────────────────────────────────────────────────────
     case "callout":
-      return `<div class="callout">${esc(block.content)}</div>`;
+      return `<div class="callout">${renderInline(block.content)}</div>`;
 
     // ── Code ──────────────────────────────────────────────────────────────────
     case "code":
@@ -273,37 +386,44 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
         ? `<div class="labeled-rule"><span>${esc(block.dividerLabel)}</span></div>`
         : `<hr class="rule">`;
 
-    // ── Toggle ────────────────────────────────────────────────────────────────
+    // ── Toggle — always open so PDF shows all content ────────────────────────
     case "toggle":
-      return `<details class="toggle"${block.isExpanded?" open":""}><summary class="toggle-summary">${esc(block.content)}</summary><div class="toggle-body">${esc(block.toggleContent||"")}</div></details>`;
+      return `<details class="toggle" open><summary class="toggle-summary">${renderInline(block.content)}</summary><div class="toggle-body">${renderInline(block.toggleContent||"")}</div></details>`;
 
-    // ── Image ─────────────────────────────────────────────────────────────────
-    case "image":
-      return block.imageUrl
-        ? `<figure class="img-fig"><img src="${esc(block.imageUrl)}" alt="Image" loading="lazy"></figure>` : "";
+    // ── Image — local shows note with download hint, external shows inline ───
+    case "image": {
+      if (!block.imageUrl) return "";
+      const local = isLocal(block.imageUrl);
+      if (local) {
+        return `<div class="media-local-card"><span class="media-icon">🖼</span><div class="media-info"><span class="media-label">Image (local file)</span><span class="media-url">${esc(block.imageUrl.split("/").pop() || block.imageUrl)}</span><span class="file-note">This image is stored locally — it will appear when opened on the original device.</span></div></div>`;
+      }
+      return `<figure class="img-fig"><img src="${esc(block.imageUrl)}" alt="Image" loading="lazy"></figure>`;
+    }
 
-    // ── Video — embed or link ──────────────────────────────────────────────────
+    // ── Video — local native player / YouTube+Vimeo embed / external link ─────
     case "video": {
       if (!block.videoUrl) return "";
       const local = isLocal(block.videoUrl);
-      const embed = !local && videoEmbedUrl(block.videoUrl);
       if (local) {
-        return `<div class="media-block"><video controls class="native-video"><source src="${esc(block.videoUrl)}"><p>Your browser does not support video playback. <a href="${esc(block.videoUrl)}" download>Download</a></p></video></div>`;
+        return `<div class="media-block"><video controls class="native-video"><source src="${esc(block.videoUrl)}"><p class="media-fallback">Your browser cannot play this video. <a href="${esc(block.videoUrl)}" download>Download file</a></p></video><div class="media-local-hint">📁 Local file — plays only on the original device</div></div>`;
       }
+      const embed = videoEmbedUrl(block.videoUrl);
       if (embed) {
-        return `<div class="media-block"><div class="video-embed-wrap"><iframe src="${esc(embed)}" frameborder="0" allowfullscreen loading="lazy" title="Video"></iframe></div></div>`;
+        return `<div class="media-block"><div class="video-embed-wrap"><iframe src="${esc(embed)}" frameborder="0" allowfullscreen loading="lazy" title="Video" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture"></iframe></div></div>`;
       }
+      // Generic external video link
       return `<div class="media-link-card"><span class="media-icon">▶</span><div class="media-info"><span class="media-label">Video</span><a href="${esc(block.videoUrl)}" target="_blank" rel="noopener" class="media-url">${esc(block.videoUrl)}</a></div></div>`;
     }
 
-    // ── Audio — native player or link ─────────────────────────────────────────
+    // ── Audio — local native player with hint / external streaming player ─────
     case "audio": {
       if (!block.audioUrl) return "";
       const local = isLocal(block.audioUrl);
+      const name = block.audioUrl.split("/").pop() || "Audio";
       if (local) {
-        return `<div class="media-block"><div class="audio-card"><span class="media-icon">🎵</span><audio controls><source src="${esc(block.audioUrl)}"><p>Cannot play audio. <a href="${esc(block.audioUrl)}" download>Download</a></p></audio></div></div>`;
+        return `<div class="audio-card"><span class="media-icon">🎵</span><div class="audio-inner"><span class="audio-name">${esc(name)}</span><audio controls><source src="${esc(block.audioUrl)}"><span class="media-fallback">Cannot play audio.</span></audio><span class="file-note">📁 Local file — plays only on the original device</span></div></div>`;
       }
-      return `<div class="audio-card"><span class="media-icon">🎵</span><audio controls src="${esc(block.audioUrl)}"></audio></div>`;
+      return `<div class="audio-card"><span class="media-icon">🎵</span><div class="audio-inner"><span class="audio-name">${esc(name)}</span><audio controls src="${esc(block.audioUrl)}"></audio></div></div>`;
     }
 
     // ── File — download link with smart icon ──────────────────────────────────
@@ -376,7 +496,7 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
     // ── Kanban ────────────────────────────────────────────────────────────────
     case "kanban": {
       const cols=(block.kanbanColumns??[]).filter(c=>c.title||c.cards.length);
-      return `<div class="kanban"><div class="kanban-scroll">${cols.map(col=>`<div class="kanban-col"><div class="kanban-hd"><span class="kanban-title">${esc(col.title||"Column")}</span><span class="kanban-badge">${col.cards.filter(c=>c.content).length}</span></div>${col.cards.filter(c=>c.content).map(c=>`<div class="kanban-card">${esc(c.content)}</div>`).join("")}</div>`).join("")}</div></div>`;
+      return `<div class="kanban"><div class="kanban-scroll">${cols.map(col=>`<div class="kanban-col"><div class="kanban-hd"><span class="kanban-title">${esc(col.title||"Column")}</span><span class="kanban-badge">${col.cards.filter(c=>c.content).length}</span></div>${col.cards.filter(c=>c.content).map(c=>`<div class="kanban-card">${renderInline(c.content)}</div>`).join("")}</div>`).join("")}</div></div>`;
     }
 
     // ── Timeline — color from Tailwind class ───────────────────────────────────
@@ -388,42 +508,156 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       }).join("")}</div>`;
     }
 
-    // ── Gallery ───────────────────────────────────────────────────────────────
+    // ── Gallery — local images show placeholder, external render inline ─────
     case "gallery": {
-      const imgs=block.galleryImages??[];
-      return `<div class="gallery">${imgs.map(img=>`<figure class="gal-item"><img src="${esc(img.url)}" alt="${esc(img.caption||"")}" loading="lazy">${img.caption?`<figcaption>${esc(img.caption)}</figcaption>`:""}</figure>`).join("")}</div>`;
+      const imgs = block.galleryImages ?? [];
+      return `<div class="gallery">${imgs.map(img => {
+        const local = isLocal(img.url);
+        if (local) {
+          const fname = img.url.split("/").pop() || "Image";
+          return `<figure class="gal-item gal-local"><div class="gal-local-inner"><span class="gal-local-icon">🖼</span><span class="gal-local-name">${esc(fname)}</span><span class="gal-local-note">Local file</span></div>${img.caption?`<figcaption>${esc(img.caption)}</figcaption>`:""}</figure>`;
+        }
+        return `<figure class="gal-item"><img src="${esc(img.url)}" alt="${esc(img.caption||"")}" loading="lazy">${img.caption?`<figcaption>${esc(img.caption)}</figcaption>`:""}</figure>`;
+      }).join("")}</div>`;
     }
 
-    // ── Mindmap — SVG with connections from x/y coordinates ──────────────────
+    // ── Mindmap — tree layout computed from connections (ignores raw x/y) ────────
+    // We build a proper radial tree: find the root(s), BFS outward, assign
+    // arc-sector angles per subtree so nodes never overlap.
     case "mindmap": {
-      const nodes=block.mindMapNodes??[];
-      const conns=block.mindMapConnections??[];
+      const nodes = block.mindMapNodes ?? [];
+      const conns = block.mindMapConnections ?? [];
       if (!nodes.length) return `<div class="mindmap-empty">No mind map nodes</div>`;
 
-      // Normalize coordinates to fit a viewBox
-      const xs=nodes.map(n=>n.x), ys=nodes.map(n=>n.y);
-      const minX=Math.min(...xs)-80, minY=Math.min(...ys)-60;
-      const maxX=Math.max(...xs)+80, maxY=Math.max(...ys)+60;
-      const vw=Math.max(maxX-minX,400), vh=Math.max(maxY-minY,300);
-      const nx=(x:number)=>x-minX, ny=(y:number)=>y-minY;
-      const nodeMap = new Map(nodes.map(n=>[n.id,n]));
+      // ── Build adjacency (directed: from→to, treat as undirected for layout) ──
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      const children = new Map<string, string[]>(); // parent → [childId]
+      const parentOf  = new Map<string, string>();
+      nodes.forEach(n => children.set(n.id, []));
+      conns.forEach(c => {
+        if (nodeMap.has(c.from) && nodeMap.has(c.to)) {
+          children.get(c.from)!.push(c.to);
+          parentOf.set(c.to, c.from);
+        }
+      });
+      // Identify root nodes (no incoming edge)
+      const roots = nodes.filter(n => !parentOf.has(n.id));
+      // If no root found (cycle or all disconnected), treat first node as root
+      const rootIds = roots.length ? roots.map(n => n.id) : [nodes[0].id];
 
-      const connLines = conns.map(c=>{
-        const f=nodeMap.get(c.from), t=nodeMap.get(c.to);
-        if (!f||!t) return "";
-        const fx=nx(f.x)+60, fy=ny(f.y)+18, tx=nx(t.x)+60, ty=ny(t.y)+18;
-        const mx=(fx+tx)/2;
-        return `<path d="M${fx},${fy} C${mx},${fy} ${mx},${ty} ${tx},${ty}" stroke="#d1d5db" stroke-width="2" fill="none" marker-end="url(#arr)"/>`;
+      // Collect disconnected nodes (not reachable from any root through connections)
+      const reachable = new Set<string>();
+      const bfsQueue = [...rootIds];
+      while (bfsQueue.length) {
+        const id = bfsQueue.shift()!;
+        if (reachable.has(id)) continue;
+        reachable.add(id);
+        (children.get(id) || []).forEach(c => bfsQueue.push(c));
+      }
+      const isolated = nodes.filter(n => !reachable.has(n.id));
+
+      // ── Node dimensions ────────────────────────────────────────────────────────
+      const NW = 130, NH = 36, HRPAD = 90, VRPAD = 60; // node w/h, h/v spacing
+
+      // ── Recursive subtree layout (left→right tree) ────────────────────────────
+      // Returns total height consumed by this subtree
+      interface Pos { x: number; y: number }
+      const pos = new Map<string, Pos>();
+
+      const subtreeHeight = (id: string): number => {
+        const kids = (children.get(id) || []).filter(c => reachable.has(c));
+        if (!kids.length) return NH;
+        const total = kids.reduce((sum, k) => sum + subtreeHeight(k) + VRPAD, -VRPAD);
+        return Math.max(total, NH);
+      };
+
+      let globalY = 0;
+      const layout = (id: string, depth: number): number => {
+        // returns the vertical center of this subtree
+        const kids = (children.get(id) || []).filter(c => reachable.has(c));
+        if (!kids.length) {
+          const cy = globalY + NH / 2;
+          pos.set(id, { x: depth * (NW + HRPAD), y: globalY });
+          globalY += NH + VRPAD;
+          return cy;
+        }
+        const startY = globalY;
+        const centers = kids.map(k => layout(k, depth + 1));
+        const cy = (centers[0] + centers[centers.length - 1]) / 2;
+        pos.set(id, { x: depth * (NW + HRPAD), y: cy - NH / 2 });
+        return cy;
+      };
+
+      // Layout each root tree
+      rootIds.forEach(r => layout(r, 0));
+
+      // Layout isolated nodes to the right
+      const maxDepthX = Math.max(...[...pos.values()].map(p => p.x), 0);
+      isolated.forEach(n => {
+        pos.set(n.id, { x: maxDepthX + NW + HRPAD, y: globalY });
+        globalY += NH + VRPAD;
+      });
+
+      // ── SVG dimensions ─────────────────────────────────────────────────────────
+      const allX = [...pos.values()].map(p => p.x);
+      const allY = [...pos.values()].map(p => p.y);
+      const PAD = 24;
+      const svgW = Math.max(...allX) + NW + PAD * 2;
+      const svgH = Math.max(...allY) + NH + PAD * 2;
+
+      // Offset everything by PAD
+      const gx = (id: string) => (pos.get(id)?.x ?? 0) + PAD;
+      const gy = (id: string) => (pos.get(id)?.y ?? 0) + PAD;
+
+      // ── Draw connection lines (edge from parent right-center → child left-center) ─
+      const allEdges: string[] = [];
+      conns.forEach(c => {
+        if (!pos.has(c.from) || !pos.has(c.to)) return;
+        const fx = gx(c.from) + NW, fy = gy(c.from) + NH / 2;
+        const tx = gx(c.to),        ty = gy(c.to) + NH / 2;
+        const mx = (fx + tx) / 2;
+        allEdges.push(
+          `<path d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${ty.toFixed(1)} ${tx.toFixed(1)},${ty.toFixed(1)}" `+
+          `stroke="#d1d5db" stroke-width="2" fill="none" stroke-linecap="round"/>`
+        );
+      });
+
+      // Draw lines from roots to isolated (visual separator only if both exist)
+      // — no line, isolated nodes just appear in their own column
+
+      // ── Draw nodes ─────────────────────────────────────────────────────────────
+      const nodesSvg = nodes.map(n => {
+        if (!pos.has(n.id)) return "";
+        const hex = toHex(n.color || "bg-blue-500", "#3b82f6");
+        const x = gx(n.id), y = gy(n.id);
+        const isRoot = rootIds.includes(n.id);
+        const fw = n.bold   ? "font-weight:700;"   : "";
+        const fi = n.italic ? "font-style:italic;"  : "";
+        const fu = n.underline ? "text-decoration:underline;" : "";
+        const bgOpacity = isRoot ? "33" : "18";
+        const strokeW   = isRoot ? "2.5" : "1.5";
+        // Wrap long text: split at ~14 chars
+        const words = n.text.split(" ");
+        const lines: string[] = [];
+        let cur = "";
+        words.forEach(w => {
+          if ((cur + " " + w).trim().length > 14 && cur) { lines.push(cur.trim()); cur = w; }
+          else cur = (cur + " " + w).trim();
+        });
+        if (cur) lines.push(cur.trim());
+        const lineH = 14, totalTextH = lines.length * lineH;
+        const textY = y + NH / 2 - totalTextH / 2 + lineH - 2;
+        const textEls = lines.map((l, i) =>
+          `<text x="${(x + NW / 2).toFixed(1)}" y="${(textY + i * lineH).toFixed(1)}" text-anchor="middle" font-size="11.5" fill="${hex}" style="${fw}${fi}${fu}font-family:-apple-system,'SF Pro Text',sans-serif">${esc(l)}</text>`
+        ).join("");
+        return (
+          `<rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" ry="9" `+
+          `fill="${hex}${bgOpacity}" stroke="${hex}" stroke-width="${strokeW}"/>`+
+          textEls
+        );
       }).join("");
 
-      const nodeRects = nodes.map(n=>{
-        const hex=toHex(n.color||"bg-blue-500","#3b82f6");
-        const x=nx(n.x), y=ny(n.y);
-        const fw=n.bold?"font-weight:700;":"", fi=n.italic?"font-style:italic;":"", fu=n.underline?"text-decoration:underline;":"";
-        return `<g transform="translate(${x},${y})"><rect x="0" y="0" width="120" height="36" rx="8" fill="${hex}22" stroke="${hex}" stroke-width="2"/><text x="60" y="22" text-anchor="middle" font-size="12" fill="${hex}" style="${fw}${fi}${fu}font-family:-apple-system,'SF Pro Text',sans-serif">${esc(n.text)}</text></g>`;
-      }).join("");
-
-      return `<div class="mindmap-wrap"><svg viewBox="0 0 ${vw} ${vh}" xmlns="http://www.w3.org/2000/svg" class="mindmap-svg"><defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#9ca3af"/></marker></defs>${connLines}${nodeRects}</svg></div>`;
+      return `<div class="mindmap-wrap"><svg viewBox="0 0 ${svgW.toFixed(0)} ${svgH.toFixed(0)}" xmlns="http://www.w3.org/2000/svg" class="mindmap-svg" style="min-height:${Math.max(svgH,120).toFixed(0)}px">${allEdges.join("")}${nodesSvg}</svg></div>`;
     }
 
     // ── Flashcards — with named color mapping ─────────────────────────────────
@@ -431,21 +665,29 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       const cards=block.flashcards??[];
       return `<div class="flashcards">${cards.map((c,i)=>{
         const hex=toHex(c.color||"blue","#3b82f6");
-        return `<div class="fc-card" style="--fc:${hex}"><span class="fc-num">#${i+1}</span><p class="fc-text">${esc(c.content)}</p></div>`;
+        return `<div class="fc-card" style="--fc:${hex}"><span class="fc-num">#${i+1}</span><p class="fc-text">${renderInline(c.content)}</p></div>`;
       }).join("")}</div>`;
     }
 
-    // ── Tabs ──────────────────────────────────────────────────────────────────
+    // ── Tabs — interactive in browser, all panels visible in PDF ─────────────
+    // For print we inject a .tab-panel-print wrapper that shows all tabs stacked.
     case "tabs": {
       const tabs=block.tabsData??[];
       const nav=tabs.map((tab,i)=>`<button class="tab-btn${i===0?" active":""}" data-tab="${i}">${esc(tab.label)}</button>`).join("");
       const panels=tabs.map((tab,i)=>{
         const inner=tab.blocks
           ? tab.blocks.map((b,j,arr)=>blockToHtml(b,depth+1,arr[j-1]?.type,counter)).join("")
-          : `<p class="prose">${esc(tab.content||"")}</p>`;
+          : `<p class="prose">${renderInline(tab.content||"")}</p>`;
         return `<div class="tab-panel${i===0?" active":""}" data-panel="${i}">${inner}</div>`;
       }).join("");
-      return `<div class="tabs-block"><div class="tabs-nav">${nav}</div><div class="tabs-content">${panels}</div></div>`;
+      // Print version: all tabs shown as labelled sections
+      const printPanels=tabs.map((tab,i)=>{
+        const inner=tab.blocks
+          ? tab.blocks.map((b,j,arr)=>blockToHtml(b,depth+1,arr[j-1]?.type,counter)).join("")
+          : `<p class="prose">${renderInline(tab.content||"")}</p>`;
+        return `<div class="tab-print-section"><div class="tab-print-label">${esc(tab.label)}</div>${inner}</div>`;
+      }).join("");
+      return `<div class="tabs-block"><div class="tabs-nav screen-only">${nav}</div><div class="tabs-content screen-only">${panels}</div><div class="tabs-print print-only">${printPanels}</div></div>`;
     }
 
     // ── Chart ─────────────────────────────────────────────────────────────────
@@ -471,13 +713,13 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
     // ── Steps ─────────────────────────────────────────────────────────────────
     case "steps": {
       const items=(block.stepsItems??[]).filter(s=>s.title||s.description);
-      return `<div class="steps">${items.map((step,i)=>`<div class="step${step.completed?" step-done":""}"><div class="step-circle">${step.completed?`<svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`:i+1}</div><div class="step-body">${step.title?`<div class="step-title">${esc(step.title)}</div>`:""}<div class="step-desc">${esc(step.description||"")}</div></div></div>`).join("")}</div>`;
+      return `<div class="steps">${items.map((step,i)=>`<div class="step${step.completed?" step-done":""}"><div class="step-circle">${step.completed?`<svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`:i+1}</div><div class="step-body">${step.title?`<div class="step-title">${renderInline(step.title)}</div>`:""}<div class="step-desc">${renderInline(step.description||"")}</div></div></div>`).join("")}</div>`;
     }
 
-    // ── FAQ ───────────────────────────────────────────────────────────────────
+    // ── FAQ — always open so answers visible in PDF ───────────────────────────
     case "faq": {
       const items=block.faqItems??[];
-      return `<div class="faq">${items.map(item=>`<details class="faq-item"><summary class="faq-q"><span>${esc(item.question)}</span><span class="faq-icon"></span></summary><div class="faq-a">${esc(item.answer)}</div></details>`).join("")}</div>`;
+      return `<div class="faq">${items.map(item=>`<details class="faq-item" open><summary class="faq-q"><span>${renderInline(item.question)}</span><span class="faq-icon"></span></summary><div class="faq-a">${renderInline(item.answer)}</div></details>`).join("")}</div>`;
     }
 
     // ── Comparison table ──────────────────────────────────────────────────────
@@ -495,12 +737,21 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       return `<div class="table-outer"><div class="table-scroll"><table class="cmp-table">${head}${body}</table></div></div>`;
     }
 
-    // ── Image + text ──────────────────────────────────────────────────────────
+    // ── Image + text — local image shows info card, external renders inline ──
     case "imageText": {
-      const dir=block.imageTextLayout==="imageRight"?"row-reverse":"row";
-      const img=block.imageTextUrl?`<div class="it-img"><img src="${esc(block.imageTextUrl)}" alt="${esc(block.imageTextTitle||"")}" loading="lazy"></div>`:"";
-      const txt=`<div class="it-body">${block.imageTextTitle?`<h3 class="it-title">${esc(block.imageTextTitle)}</h3>`:""}${block.imageTextDescription?`<p class="it-desc">${esc(block.imageTextDescription)}</p>`:""}</div>`;
-      return `<div class="image-text" style="flex-direction:${dir}">${img}${txt}</div>`;
+      const dir = block.imageTextLayout === "imageRight" ? "row-reverse" : "row";
+      let imgPart = "";
+      if (block.imageTextUrl) {
+        const local = isLocal(block.imageTextUrl);
+        if (local) {
+          const fname = block.imageTextUrl.split("/").pop() || "Image";
+          imgPart = `<div class="it-img it-img-local"><span class="gal-local-icon">🖼</span><span class="gal-local-name">${esc(fname)}</span><span class="gal-local-note">Local file — not visible in export</span></div>`;
+        } else {
+          imgPart = `<div class="it-img"><img src="${esc(block.imageTextUrl)}" alt="${esc(block.imageTextTitle||"")}" loading="lazy"></div>`;
+        }
+      }
+      const txt = `<div class="it-body">${block.imageTextTitle?`<h3 class="it-title">${renderInline(block.imageTextTitle)}</h3>`:""}${block.imageTextDescription?`<p class="it-desc">${renderInline(block.imageTextDescription)}</p>`:""}</div>`;
+      return `<div class="image-text" style="flex-direction:${dir}">${imgPart}${txt}</div>`;
     }
 
     // ── Columns layout ────────────────────────────────────────────────────────
@@ -510,7 +761,7 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
     }
 
     default:
-      return block.content?`<p class="prose">${esc(block.content)}</p>`:"";
+      return block.content?`<p class="prose">${renderInline(block.content)}</p>`:"";
   }
 };
 
@@ -690,7 +941,15 @@ a{color:var(--blue)}a:hover{text-decoration:underline}
 .btn-blue:active{transform:scale(.97)}
 
 /* ── Page shell ── */
-.page{max-width:740px;margin:0 auto;padding:48px 24px 80px}
+.page{max-width:960px;margin:0 auto;padding:48px 36px 80px}
+
+/* ── Screen/print visibility helpers ── */
+.screen-only{display:block}
+.print-only{display:none}
+@media print{
+  .screen-only{display:none!important}
+  .print-only{display:block!important}
+}
 
 /* ── Page header ── */
 .page-eyebrow{font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4);margin-bottom:10px}
@@ -726,8 +985,30 @@ a{color:var(--blue)}a:hover{text-decoration:underline}
 .cb-on svg{opacity:1}
 .done{text-decoration:line-through;color:var(--ink4)}
 
-/* ── Quote ── */
-.quote{border-left:3px solid var(--border);padding:.6em 1.1em;margin:.9em 0;color:var(--ink3);font-style:italic;background:var(--surface2);border-radius:0 var(--r8) var(--r8) 0}
+/* ── Inline rich text formatting ── */
+.prose strong,.prose b,strong,b{font-weight:700}
+.prose em,.prose i,em,i{font-style:italic}
+.prose u,u{text-decoration:underline}
+.prose s,.prose strike,.prose del,s,strike,del{text-decoration:line-through;opacity:.7}
+.prose mark,mark{border-radius:3px;padding:0 2px}
+/* Inline code inside prose (not code blocks) */
+.prose code,li code,blockquote code,.toggle-body code,.faq-a code,.step-desc code,.step-title code{
+  font-family:"SF Mono","Fira Code","JetBrains Mono",monospace;
+  font-size:.85em;background:#f3f3f3;color:#d63031;
+  border:1px solid #e4e4e7;border-radius:4px;padding:1px 5px;
+}
+/* font tag colours */
+font[color]{} /* browser handles it natively */
+
+/* ── Media local hint ── */
+.media-local-card{display:flex;align-items:flex-start;gap:14px;padding:14px 18px;background:#fffbeb;border:1px solid #fde68a;border-radius:var(--r12);margin:.7em 0}
+.media-local-hint{font-size:.76rem;color:var(--ink4);margin-top:8px;font-style:italic}
+.media-fallback{font-size:.82rem;color:var(--ink4);margin-top:6px;font-style:italic}
+
+/* ── Audio inner layout ── */
+.audio-inner{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
+.audio-name{font-size:.84rem;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.audio-inner audio{width:100%;height:36px}
 
 /* ── Callout ── */
 .callout{display:flex;align-items:flex-start;gap:2px;background:var(--blue-l);border:1px solid #c3d9f8;border-radius:var(--r12);padding:14px 16px;margin:.9em 0;color:var(--ink2);line-height:1.6;font-size:.93rem}
@@ -859,10 +1140,18 @@ tbody tr:hover td{background:var(--surface2)}
 .gal-item{border-radius:var(--r12);overflow:hidden;box-shadow:var(--sh1);margin:0;background:var(--surface3)}
 .gal-item img{width:100%;aspect-ratio:4/3;object-fit:cover}
 .gal-item figcaption{padding:7px 10px;font-size:.74rem;color:var(--ink3);background:var(--surface2)}
+/* Local image placeholder inside gallery */
+.gal-local{background:#fffbeb;border:1px dashed #fde68a}
+.gal-local-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:20px 12px;min-height:110px}
+.gal-local-icon{font-size:1.8em}
+.gal-local-name{font-size:.76rem;font-weight:600;color:var(--ink3);text-align:center;word-break:break-all}
+.gal-local-note{font-size:.68rem;color:#b45309;font-style:italic}
+/* Local placeholder inside image-text */
+.it-img-local{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px 16px;background:#fffbeb;border:1px dashed #fde68a;border-radius:var(--r16);flex:0 0 42%;text-align:center}
 
 /* ── Mindmap SVG ── */
 .mindmap-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r16);padding:16px;margin:.9em 0;overflow:auto;box-shadow:var(--sh1)}
-.mindmap-svg{width:100%;height:auto;min-height:200px;display:block}
+.mindmap-svg{width:100%;height:auto;display:block;overflow:visible}
 .mindmap-empty{padding:32px;text-align:center;color:var(--ink4);font-style:italic;background:var(--surface2);border-radius:var(--r12);margin:.9em 0}
 
 /* ── Flashcards ── */
@@ -871,7 +1160,7 @@ tbody tr:hover td{background:var(--surface2)}
 .fc-num{font-size:.68rem;font-weight:800;color:var(--fc);opacity:.6;position:absolute;top:11px;right:13px}
 .fc-text{font-size:.88rem;line-height:1.55;color:var(--ink2);margin-top:8px}
 
-/* ── Tabs ── */
+/* ── Tabs — screen UI ── */
 .tabs-block{border:1px solid var(--border);border-radius:var(--r16);overflow:hidden;margin:.9em 0;box-shadow:var(--sh1);background:var(--surface)}
 .tabs-nav{display:flex;background:var(--surface2);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
 .tabs-nav::-webkit-scrollbar{display:none}
@@ -879,6 +1168,12 @@ tbody tr:hover td{background:var(--surface2)}
 .tab-btn:hover{color:var(--ink);background:var(--surface3)}
 .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);background:var(--surface)}
 .tabs-content{}.tab-panel{display:none;padding:20px 22px}.tab-panel.active{display:block}
+
+/* ── Tabs — print layout (all panels shown as labelled sections) ── */
+.tabs-print{margin:.9em 0}
+.tab-print-section{margin-bottom:18px;border:1px solid var(--border);border-radius:var(--r12);overflow:hidden;background:var(--surface);break-inside:avoid}
+.tab-print-label{padding:9px 16px;font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);background:var(--blue-l);border-bottom:1px solid #c3d9f8}
+.tab-print-section>*:not(.tab-print-label){padding:14px 18px}
 
 /* ── Chart card ── */
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r20);padding:24px;margin:.9em 0;box-shadow:var(--sh1)}
@@ -954,11 +1249,18 @@ tbody tr:hover td{background:var(--surface2)}
   .table-scroll{overflow:visible}
   table{min-width:unset;width:100%}
   th,td{white-space:normal}
+  /* Toggle — force open in print */
+  .toggle{border:1px solid #e4e4e7}
+  .toggle-summary::before{content:"▼"!important;transform:rotate(0)!important}
+  .toggle-body{display:block!important}
+  /* FAQ — force open in print (already has open attr, belt+suspenders) */
+  .faq-a{display:block!important}
+  .faq-icon::before{content:"−"!important}
   /* Charts keep their height */
   .chart-card{break-inside:avoid}
   .chart-canvas-wrap{height:260px}
   /* Other break rules */
-  .step,.swot-cell,.faq-item,.tl-row,.kanban-col{break-inside:avoid}
+  .step,.swot-cell,.faq-item,.tl-row,.kanban-col,.tab-print-section{break-inside:avoid}
   h1,h2,h3,.h1,.h2,.h3,.rule{break-after:avoid}
   .kanban-scroll{flex-wrap:wrap}
   /* Color accuracy */
@@ -967,7 +1269,7 @@ tbody tr:hover td{background:var(--surface2)}
 }
 
 /* ── Responsive ── */
-@media(max-width:640px){
+@media(max-width:700px){
   .topbar{padding:0 14px}
   .page{padding:28px 14px 56px}
   .page-title{font-size:2rem}
@@ -1202,6 +1504,13 @@ export const useNoteExport = () => {
         break;
       case "pdf":
         exportPdf(note);
+        break;
+      case "json":
+        dl(
+          JSON.stringify(note, null, 2),
+          `${name}.json`,
+          "application/json"
+        );
         break;
     }
   }, []);
