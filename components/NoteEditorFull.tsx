@@ -429,6 +429,12 @@ const NoteEditorFull = ({ note, onUpdate, focusMode = false, onToggleFocusMode }
               >
                 <FileJsonIcon className="w-4 h-4" /> JSON
               </button>
+              <button
+                onClick={() => { exportNote(note, "pdf"); setShowExportMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+              >
+                <File className="w-4 h-4" /> PDF
+              </button>
             </motion.div>
           )}
         </AnimatePresence>

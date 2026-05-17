@@ -521,143 +521,315 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       }).join("")}</div>`;
     }
 
-    // ── Mindmap — tree layout computed from connections (ignores raw x/y) ────────
-    // We build a proper radial tree: find the root(s), BFS outward, assign
-    // arc-sector angles per subtree so nodes never overlap.
+    // ── Mindmap — Sugiyama layered graph, proper port routing, labels ─────────
     case "mindmap": {
       const nodes = block.mindMapNodes ?? [];
-      const conns = block.mindMapConnections ?? [];
+      const rawConns = block.mindMapConnections ?? [];
       if (!nodes.length) return `<div class="mindmap-empty">No mind map nodes</div>`;
 
-      // ── Build adjacency (directed: from→to, treat as undirected for layout) ──
       const nodeMap = new Map(nodes.map(n => [n.id, n]));
-      const children = new Map<string, string[]>(); // parent → [childId]
-      const parentOf  = new Map<string, string>();
-      nodes.forEach(n => children.set(n.id, []));
-      conns.forEach(c => {
-        if (nodeMap.has(c.from) && nodeMap.has(c.to)) {
-          children.get(c.from)!.push(c.to);
-          parentOf.set(c.to, c.from);
+
+      // ── Geometry ───────────────────────────────────────────────────────────
+      const NW = 148, NH = 42, LH_GAP = 100, NV_GAP = 32, PAD = 40;
+
+      // ── Step 1: Separate floating (fully disconnected) nodes ──────────────
+      const validConns = rawConns.filter(
+        c => c.from !== c.to && nodeMap.has(c.from) && nodeMap.has(c.to)
+      );
+      const usedIds = new Set<string>();
+      validConns.forEach(c => { usedIds.add(c.from); usedIds.add(c.to); });
+      const graphNodes = nodes.filter(n =>  usedIds.has(n.id));
+      const floatNodes = nodes.filter(n => !usedIds.has(n.id));
+
+      // ── Step 2: Back-edge detection (iterative DFS) ────────────────────────
+      const dfsCol = new Map<string, 0|1|2>();
+      graphNodes.forEach(n => dfsCol.set(n.id, 0));
+      const backSet = new Set<string>(); // "from→to"
+
+      graphNodes.forEach(startN => {
+        if ((dfsCol.get(startN.id) ?? 0) !== 0) return;
+        const nbOf = (id: string) => validConns.filter(c => c.from === id).map(c => c.to);
+        const stk: { id: string; it: Iterator<string> }[] = [];
+        dfsCol.set(startN.id, 1);
+        stk.push({ id: startN.id, it: nbOf(startN.id)[Symbol.iterator]() });
+        while (stk.length) {
+          const top = stk[stk.length - 1];
+          const { value: nb, done } = top.it.next();
+          if (done) { dfsCol.set(top.id, 2); stk.pop(); continue; }
+          const col = dfsCol.get(nb) ?? 0;
+          if (col === 1) backSet.add(`${top.id}→${nb}`);
+          else if (col === 0) {
+            dfsCol.set(nb, 1);
+            stk.push({ id: nb, it: nbOf(nb)[Symbol.iterator]() });
+          }
         }
       });
-      // Identify root nodes (no incoming edge)
-      const roots = nodes.filter(n => !parentOf.has(n.id));
-      // If no root found (cycle or all disconnected), treat first node as root
-      const rootIds = roots.length ? roots.map(n => n.id) : [nodes[0].id];
+      const isBack = (f: string, t: string) => backSet.has(`${f}→${t}`);
 
-      // Collect disconnected nodes (not reachable from any root through connections)
-      const reachable = new Set<string>();
-      const bfsQueue = [...rootIds];
-      while (bfsQueue.length) {
-        const id = bfsQueue.shift()!;
-        if (reachable.has(id)) continue;
-        reachable.add(id);
-        (children.get(id) || []).forEach(c => bfsQueue.push(c));
-      }
-      const isolated = nodes.filter(n => !reachable.has(n.id));
-
-      // ── Node dimensions ────────────────────────────────────────────────────────
-      const NW = 130, NH = 36, HRPAD = 90, VRPAD = 60; // node w/h, h/v spacing
-
-      // ── Recursive subtree layout (left→right tree) ────────────────────────────
-      // Returns total height consumed by this subtree
-      interface Pos { x: number; y: number }
-      const pos = new Map<string, Pos>();
-
-      const subtreeHeight = (id: string): number => {
-        const kids = (children.get(id) || []).filter(c => reachable.has(c));
-        if (!kids.length) return NH;
-        const total = kids.reduce((sum, k) => sum + subtreeHeight(k) + VRPAD, -VRPAD);
-        return Math.max(total, NH);
-      };
-
-      let globalY = 0;
-      const layout = (id: string, depth: number): number => {
-        // returns the vertical center of this subtree
-        const kids = (children.get(id) || []).filter(c => reachable.has(c));
-        if (!kids.length) {
-          const cy = globalY + NH / 2;
-          pos.set(id, { x: depth * (NW + HRPAD), y: globalY });
-          globalY += NH + VRPAD;
-          return cy;
-        }
-        const startY = globalY;
-        const centers = kids.map(k => layout(k, depth + 1));
-        const cy = (centers[0] + centers[centers.length - 1]) / 2;
-        pos.set(id, { x: depth * (NW + HRPAD), y: cy - NH / 2 });
-        return cy;
-      };
-
-      // Layout each root tree
-      rootIds.forEach(r => layout(r, 0));
-
-      // Layout isolated nodes to the right
-      const maxDepthX = Math.max(...[...pos.values()].map(p => p.x), 0);
-      isolated.forEach(n => {
-        pos.set(n.id, { x: maxDepthX + NW + HRPAD, y: globalY });
-        globalY += NH + VRPAD;
+      // ── Step 3: Longest-path layering on the DAG ──────────────────────────
+      const outE = new Map<string, string[]>();
+      const inD  = new Map<string, number>();
+      graphNodes.forEach(n => { outE.set(n.id, []); inD.set(n.id, 0); });
+      validConns.forEach(c => {
+        if (isBack(c.from, c.to)) return;
+        outE.get(c.from)!.push(c.to);
+        inD.set(c.to, (inD.get(c.to) ?? 0) + 1);
       });
-
-      // ── SVG dimensions ─────────────────────────────────────────────────────────
-      const allX = [...pos.values()].map(p => p.x);
-      const allY = [...pos.values()].map(p => p.y);
-      const PAD = 24;
-      const svgW = Math.max(...allX) + NW + PAD * 2;
-      const svgH = Math.max(...allY) + NH + PAD * 2;
-
-      // Offset everything by PAD
-      const gx = (id: string) => (pos.get(id)?.x ?? 0) + PAD;
-      const gy = (id: string) => (pos.get(id)?.y ?? 0) + PAD;
-
-      // ── Draw connection lines (edge from parent right-center → child left-center) ─
-      const allEdges: string[] = [];
-      conns.forEach(c => {
-        if (!pos.has(c.from) || !pos.has(c.to)) return;
-        const fx = gx(c.from) + NW, fy = gy(c.from) + NH / 2;
-        const tx = gx(c.to),        ty = gy(c.to) + NH / 2;
-        const mx = (fx + tx) / 2;
-        allEdges.push(
-          `<path d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${ty.toFixed(1)} ${tx.toFixed(1)},${ty.toFixed(1)}" `+
-          `stroke="#d1d5db" stroke-width="2" fill="none" stroke-linecap="round"/>`
-        );
-      });
-
-      // Draw lines from roots to isolated (visual separator only if both exist)
-      // — no line, isolated nodes just appear in their own column
-
-      // ── Draw nodes ─────────────────────────────────────────────────────────────
-      const nodesSvg = nodes.map(n => {
-        if (!pos.has(n.id)) return "";
-        const hex = toHex(n.color || "bg-blue-500", "#3b82f6");
-        const x = gx(n.id), y = gy(n.id);
-        const isRoot = rootIds.includes(n.id);
-        const fw = n.bold   ? "font-weight:700;"   : "";
-        const fi = n.italic ? "font-style:italic;"  : "";
-        const fu = n.underline ? "text-decoration:underline;" : "";
-        const bgOpacity = isRoot ? "33" : "18";
-        const strokeW   = isRoot ? "2.5" : "1.5";
-        // Wrap long text: split at ~14 chars
-        const words = n.text.split(" ");
-        const lines: string[] = [];
-        let cur = "";
-        words.forEach(w => {
-          if ((cur + " " + w).trim().length > 14 && cur) { lines.push(cur.trim()); cur = w; }
-          else cur = (cur + " " + w).trim();
+      const layerOf = new Map<string, number>();
+      const kQ = graphNodes.filter(n => (inD.get(n.id) ?? 0) === 0).map(n => n.id);
+      if (!kQ.length && graphNodes.length) kQ.push(graphNodes[0].id);
+      while (kQ.length) {
+        const id = kQ.shift()!;
+        const l = layerOf.get(id) ?? 0;
+        (outE.get(id) || []).forEach(to => {
+          const nl = l + 1;
+          if ((layerOf.get(to) ?? 0) < nl) layerOf.set(to, nl);
+          const d = (inD.get(to) ?? 1) - 1;
+          inD.set(to, d);
+          if (d <= 0) kQ.push(to);
         });
-        if (cur) lines.push(cur.trim());
-        const lineH = 14, totalTextH = lines.length * lineH;
-        const textY = y + NH / 2 - totalTextH / 2 + lineH - 2;
-        const textEls = lines.map((l, i) =>
-          `<text x="${(x + NW / 2).toFixed(1)}" y="${(textY + i * lineH).toFixed(1)}" text-anchor="middle" font-size="11.5" fill="${hex}" style="${fw}${fi}${fu}font-family:-apple-system,'SF Pro Text',sans-serif">${esc(l)}</text>`
-        ).join("");
-        return (
-          `<rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="9" ry="9" `+
-          `fill="${hex}${bgOpacity}" stroke="${hex}" stroke-width="${strokeW}"/>`+
-          textEls
-        );
+      }
+      graphNodes.forEach(n => { if (!layerOf.has(n.id)) layerOf.set(n.id, 0); });
+
+      // ── Step 4: Group + barycentric sort within layers ─────────────────────
+      const maxL = Math.max(...graphNodes.map(n => layerOf.get(n.id) ?? 0), 0);
+      const layerGroups: string[][] = Array.from({ length: maxL + 1 }, () => []);
+      graphNodes.forEach(n => layerGroups[layerOf.get(n.id) ?? 0].push(n.id));
+
+      const bary = (id: string, dir: "in"|"out") => {
+        const peers = dir === "out"
+          ? validConns.filter(c => c.from === id && !isBack(c.from, c.to)).map(c => c.to)
+          : validConns.filter(c => c.to   === id && !isBack(c.from, c.to)).map(c => c.from);
+        if (!peers.length) return 999;
+        return peers.reduce((s, r) => s + (layerGroups[layerOf.get(r)??0]?.indexOf(r) ?? 0), 0) / peers.length;
+      };
+      for (let pass = 0; pass < 3; pass++) {
+        layerGroups.forEach(g => g.sort((a, b) => bary(a, pass%2===0?"in":"out") - bary(b, pass%2===0?"in":"out")));
+      }
+
+      // ── Step 5: Pixel positions ────────────────────────────────────────────
+      type Pt = { x: number; y: number; cx: number; cy: number };
+      const pos = new Map<string, Pt>();
+      layerGroups.forEach((group, li) => {
+        const x = PAD + li * (NW + LH_GAP);
+        group.forEach((id, ni) => {
+          const y = PAD + ni * (NH + NV_GAP);
+          pos.set(id, { x, y, cx: x + NW / 2, cy: y + NH / 2 });
+        });
+      });
+
+      // ── Step 6: Spread exit/entry ports per node ───────────────────────────
+      // For each node, evenly divide its right edge (exit) among outgoing
+      // forward edges, and its left edge (entry) among incoming forward edges.
+      // This prevents all arrows from stacking on the same pixel.
+      const rPortsOf = new Map<string, number[]>(); // nodeId → list of y values
+      const lPortsOf = new Map<string, number[]>();
+      graphNodes.forEach(n => {
+        const p = pos.get(n.id);
+        if (!p) return;
+        const outs = validConns.filter(c => c.from === n.id && !isBack(c.from, c.to));
+        const ins  = validConns.filter(c => c.to   === n.id && !isBack(c.from, c.to));
+        const spread = (count: number) => {
+          if (count === 0) return [];
+          if (count === 1) return [p.cy];
+          return Array.from({ length: count }, (_, i) =>
+            p.y + NH * 0.15 + i * (NH * 0.7 / (count - 1))
+          );
+        };
+        rPortsOf.set(n.id, spread(outs.length));
+        lPortsOf.set(n.id, spread(ins.length));
+      });
+      const rIdxOf = new Map<string, number>();
+      const lIdxOf = new Map<string, number>();
+
+      // ── Step 7: Arrowhead markers (one per unique node color) ──────────────
+      const uniqueHex = new Set<string>();
+      nodes.forEach(n => uniqueHex.add(toHex(n.color || "bg-blue-500", "#3b82f6")));
+      const arrowDefs = [...uniqueHex].map(hex => {
+        const mid = `am${hex.replace('#', '')}`;
+        return `<marker id="${mid}" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">` +
+               `<path d="M0,0.5 L9,3.5 L0,6.5 Z" fill="${hex}"/>` +
+               `</marker>`;
       }).join("");
 
-      return `<div class="mindmap-wrap"><svg viewBox="0 0 ${svgW.toFixed(0)} ${svgH.toFixed(0)}" xmlns="http://www.w3.org/2000/svg" class="mindmap-svg" style="min-height:${Math.max(svgH,120).toFixed(0)}px">${allEdges.join("")}${nodesSvg}</svg></div>`;
+      // ── Step 8: Draw edges ─────────────────────────────────────────────────
+      const edgeSvg: string[] = [];
+      const labelSvg: string[] = [];
+      let backCount = 0;
+
+      validConns.forEach(c => {
+        if (!pos.has(c.from) || !pos.has(c.to)) return;
+        const fp = pos.get(c.from)!;
+        const tp = pos.get(c.to)!;
+        const fHex = toHex(nodeMap.get(c.from)?.color || "bg-blue-500", "#3b82f6");
+        const tHex = toHex(nodeMap.get(c.to)?.color   || "bg-blue-500", "#3b82f6");
+        const markId = `am${tHex.replace('#', '')}`;
+        const label  = (c as any).label as string | undefined;
+
+        let pathD = "", lx = 0, ly = 0;
+
+        if (isBack(c.from, c.to)) {
+          // Back-edge: arc along the bottom, below all nodes, staggered
+          backCount++;
+          const allMaxY = Math.max(...[...pos.values()].map(p => p.y + NH));
+          const arcY = allMaxY + 28 + backCount * 32;
+          const sx = fp.cx, sy = fp.y + NH;
+          const tx2 = tp.cx, ty2 = tp.y + NH;
+          pathD = `M${sx.toFixed(1)},${sy.toFixed(1)} ` +
+                  `C${sx.toFixed(1)},${arcY.toFixed(1)} ` +
+                  `${tx2.toFixed(1)},${arcY.toFixed(1)} ` +
+                  `${tx2.toFixed(1)},${ty2.toFixed(1)}`;
+          lx = (sx + tx2) / 2;
+          ly = arcY - 6;
+        } else {
+          // Forward edge: staggered port bezier
+          const ri = rIdxOf.get(c.from) ?? 0;
+          const li = lIdxOf.get(c.to)   ?? 0;
+          rIdxOf.set(c.from, ri + 1);
+          lIdxOf.set(c.to,   li + 1);
+
+          const fy = (rPortsOf.get(c.from) ?? [fp.cy])[ri] ?? fp.cy;
+          const ty2 = (lPortsOf.get(c.to)  ?? [tp.cy])[li] ?? tp.cy;
+
+          const sx  = fp.x + NW;
+          const tx2 = tp.x - 10;         // leave 10px gap for arrowhead
+          const cpx = sx + (tx2 - sx) * 0.5;
+
+          if (sx >= tp.x) {
+            // Edge going right-to-left (back in layout terms, not DFS-back)
+            // Route with a big arc above or below to avoid crossing nodes
+            const arcAbove = fp.cy < tp.cy;
+            const midY = arcAbove
+              ? Math.min(fy, ty2) - 60
+              : Math.max(fy, ty2) + 60;
+            pathD = `M${sx.toFixed(1)},${fy.toFixed(1)} ` +
+                    `C${(sx+50).toFixed(1)},${fy.toFixed(1)} ` +
+                    `${(sx+50).toFixed(1)},${midY.toFixed(1)} ` +
+                    `${((sx + tx2)/2).toFixed(1)},${midY.toFixed(1)} ` +
+                    `S${(tx2-40).toFixed(1)},${ty2.toFixed(1)} ${tx2.toFixed(1)},${ty2.toFixed(1)}`;
+            lx = (sx + tx2) / 2;
+            ly = midY - 14;
+          } else {
+            pathD = `M${sx.toFixed(1)},${fy.toFixed(1)} ` +
+                    `C${cpx.toFixed(1)},${fy.toFixed(1)} ` +
+                    `${cpx.toFixed(1)},${ty2.toFixed(1)} ` +
+                    `${tx2.toFixed(1)},${ty2.toFixed(1)}`;
+            // Put label at 50% along the bezier — approx midpoint
+            lx = sx + (tx2 - sx) * 0.5;
+            ly = fy + (ty2 - fy) * 0.5 - 11;
+          }
+        }
+
+        edgeSvg.push(
+          `<path d="${pathD}" stroke="${fHex}" stroke-width="1.7" fill="none" ` +
+          `opacity=".7" stroke-linecap="round" stroke-linejoin="round" ` +
+          `marker-end="url(#${markId})"/>`
+        );
+
+        if (label) {
+          const lw = label.length * 6.5 + 18;
+          labelSvg.push(
+            `<rect x="${(lx - lw/2).toFixed(1)}" y="${(ly - 8).toFixed(1)}" ` +
+            `width="${lw.toFixed(1)}" height="15" rx="7.5" ` +
+            `fill="white" stroke="${fHex}" stroke-width="1" opacity=".95"/>` +
+            `<text x="${lx.toFixed(1)}" y="${(ly + 3.5).toFixed(1)}" ` +
+            `text-anchor="middle" font-size="9" fill="${fHex}" ` +
+            `font-family="-apple-system,'SF Pro Text',sans-serif" ` +
+            `font-weight="700" letter-spacing=".02em">${esc(label)}</text>`
+          );
+        }
+      });
+
+      // ── Step 9: Draw nodes ─────────────────────────────────────────────────
+      const drawN = (n: typeof nodes[0], ox: number, oy: number) => {
+        const hex    = toHex(n.color || "bg-blue-500", "#3b82f6");
+        const hasIn  = validConns.some(c => c.to   === n.id && !isBack(c.from, c.to));
+        const fill   = hasIn ? hex + "1e" : hex;   // source nodes: solid; others: tinted
+        const textC  = hasIn ? hex : "#fff";
+        const sw     = hasIn ? "1.5" : "2.5";
+        const sty    = (n.bold?"font-weight:700;":"") + (n.italic?"font-style:italic;":"") +
+                       (n.underline?"text-decoration:underline;":"") +
+                       "font-family:-apple-system,'SF Pro Text',sans-serif;";
+        const cx = ox + NW / 2, cy = oy + NH / 2;
+
+        // Word wrap at 16 chars
+        const wds = (n.text || "—").split(" ");
+        const lns: string[] = [];
+        let cur2 = "";
+        wds.forEach(w => {
+          const cand = cur2 ? `${cur2} ${w}` : w;
+          if (cand.length > 16 && cur2) { lns.push(cur2); cur2 = w; }
+          else cur2 = cand;
+        });
+        if (cur2) lns.push(cur2);
+
+        const lh = 15, th = lns.length * lh;
+        const nodeH = Math.max(NH, th + 16);
+        const ty0 = oy + (nodeH / 2) - (th / 2) + lh - 4;
+
+        const textEls = lns.map((l2, i) =>
+          `<text x="${cx.toFixed(1)}" y="${(ty0 + i*lh).toFixed(1)}" ` +
+          `text-anchor="middle" font-size="12" fill="${textC}" style="${sty}">${esc(l2)}</text>`
+        ).join("");
+
+        const shape = n.shape ?? "rectangle";
+        let shp = "";
+        if (shape === "diamond") {
+          shp = `<polygon points="${cx},${oy-6} ${ox+NW+6},${cy} ${cx},${oy+nodeH+6} ${ox-6},${cy}" fill="${fill}" stroke="${hex}" stroke-width="${sw}"/>`;
+        } else if (shape === "oval") {
+          shp = `<ellipse cx="${cx}" cy="${oy+nodeH/2}" rx="${NW/2}" ry="${nodeH/2}" fill="${fill}" stroke="${hex}" stroke-width="${sw}"/>`;
+        } else {
+          shp = `<rect x="${ox}" y="${oy}" width="${NW}" height="${nodeH}" rx="10" fill="${fill}" stroke="${hex}" stroke-width="${sw}"/>`;
+        }
+        return shp + textEls;
+      };
+
+      const nodesSvg = graphNodes.map(n => {
+        const p = pos.get(n.id);
+        return p ? drawN(n, p.x, p.y) : "";
+      }).join("");
+
+      // ── Step 10: Float nodes in a grid below the graph ─────────────────────
+      const gMaxY = [...pos.values()].reduce((m, p) => Math.max(m, p.y + NH), PAD);
+      const arcSpace = backCount > 0 ? backCount * 32 + 56 : 0;
+      const floatY0 = gMaxY + arcSpace + (floatNodes.length ? 40 : 0);
+      let floatSvg = "";
+      let floatLbl = "";
+
+      if (floatNodes.length) {
+        const allMaxX = Math.max(...[...pos.values()].map(p => p.x + NW), PAD + NW);
+        floatLbl =
+          `<text x="${PAD}" y="${floatY0 - 10}" font-size="9" fill="#aaa" ` +
+          `font-weight="700" letter-spacing=".12em" ` +
+          `font-family="-apple-system,sans-serif">STANDALONE</text>`;
+        floatNodes.forEach((n, i) => {
+          const col = i % 4;
+          const row = Math.floor(i / 4);
+          floatSvg += drawN(n, PAD + col * (NW + LH_GAP), floatY0 + row * (NH + NV_GAP));
+        });
+      }
+
+      // ── SVG canvas size ────────────────────────────────────────────────────
+      const allPX = [...pos.values()];
+      const svgW = Math.max(
+        allPX.reduce((m, p) => Math.max(m, p.x + NW), 0) + PAD,
+        4 * (NW + LH_GAP) + PAD
+      );
+      const floatRows  = Math.ceil(floatNodes.length / 4);
+      const svgH = floatY0 + (floatNodes.length ? floatRows * (NH + NV_GAP) + PAD : 0);
+
+      return (
+        `<div class="mindmap-wrap">` +
+        `<svg viewBox="0 0 ${svgW.toFixed(0)} ${Math.max(svgH, 200).toFixed(0)}" ` +
+        `xmlns="http://www.w3.org/2000/svg" class="mindmap-svg" ` +
+        `style="min-height:${Math.min(Math.max(svgH, 180), 600).toFixed(0)}px">` +
+        `<defs>${arrowDefs}</defs>` +
+        edgeSvg.join("") +
+        labelSvg.join("") +
+        nodesSvg +
+        floatLbl + floatSvg +
+        `</svg></div>`
+      );
     }
 
     // ── Flashcards — with named color mapping ─────────────────────────────────
@@ -1297,6 +1469,35 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
   });
 });
 
+// ── Readiness flags (always declared so the PDF poller can read them) ─────────
+window.__chartsReady=${hasCharts ? "false" : "true"};
+window.__katexReady=${hasEquations ? "false" : "true"};
+window.__imagesReady=false;
+
+// ── Track all images loading (including external URLs) ────────────────────────
+(function(){
+  function checkImages(){
+    var imgs=Array.from(document.querySelectorAll('img'));
+    if(!imgs.length){window.__imagesReady=true;return;}
+    var pending=imgs.length;
+    function oneDone(){pending--;if(pending<=0)window.__imagesReady=true;}
+    imgs.forEach(function(img){
+      if(img.complete){
+        oneDone();
+      } else {
+        img.addEventListener('load',oneDone,{once:true});
+        img.addEventListener('error',oneDone,{once:true}); // broken img still counts as done
+      }
+    });
+  }
+  // Run after DOM is parsed
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',checkImages);
+  } else {
+    checkImages();
+  }
+})();
+
 ${hasEquations ? `
 // ── KaTeX equations ───────────────────────────────────────────────────────────
 (function(){
@@ -1310,73 +1511,97 @@ ${hasEquations ? `
     document.querySelectorAll('.equation').forEach(function(el){
       var formula=el.dataset.formula||'';
       var target=el.querySelector('.eq-rendered');
-      if(!target) return;
+      if(!target)return;
       try{
         katex.render(formula,target,{throwOnError:false,displayMode:true});
         el.querySelector('.eq-display').style.display='none';
-      } catch(e){
-        target.textContent=formula;
-      }
+      }catch(e){target.textContent=formula;}
     });
+    window.__katexReady=true;
   };
+  s.onerror=function(){window.__katexReady=true;};
   document.head.appendChild(s);
 })();
 ` : ""}
 
 ${hasCharts ? `
 // ── Charts via Chart.js 4 ─────────────────────────────────────────────────────
-// Configs are in window.__CHARTS (set in <head> before this script runs).
 (function(){
   var configs=window.__CHARTS||[];
-  if(!configs.length) return;
+  if(!configs.length){window.__chartsReady=true;return;}
+  var pending=configs.length;
+  function oneDone(){pending--;if(pending<=0)window.__chartsReady=true;}
   function renderCharts(){
     Chart.defaults.font.family="-apple-system,'SF Pro Text','Helvetica Neue',sans-serif";
     Chart.defaults.color='#6e6e73';
     configs.forEach(function(item){
       var el=document.getElementById(item.id);
-      if(!el){console.warn('canvas not found:',item.id);return;}
-      try{new Chart(el,item.cfg);}
-      catch(e){console.error('Chart error ['+item.id+']:',e);}
+      if(!el){oneDone();return;}
+      try{
+        var cfg=JSON.parse(JSON.stringify(item.cfg));
+        // Disable animation for PDF so canvas is fully painted synchronously
+        cfg.options=cfg.options||{};
+        cfg.options.animation=${forPdf ? "{duration:0}" : "cfg.options.animation||{}"};
+        cfg.options.responsive=true;
+        cfg.options.maintainAspectRatio=false;
+        var ch=new Chart(el,cfg);
+        if(${forPdf ? "true" : "false"}){
+          // In PDF mode, chart renders synchronously (animation:0) — mark done immediately
+          oneDone();
+        } else {
+          ch.options.animation={onComplete:function(){oneDone();}};
+          ch.update('none');
+        }
+      }catch(e){console.error('Chart['+item.id+']:',e);oneDone();}
     });
   }
   if(typeof Chart!=='undefined'){
     renderCharts();
-  } else {
+  }else{
     var s=document.createElement('script');
     s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js';
     s.crossOrigin='anonymous';
     s.onload=renderCharts;
-    s.onerror=function(){console.error('Chart.js CDN load failed');};
+    s.onerror=function(){window.__chartsReady=true;};
     document.head.appendChild(s);
   }
 })();
 ` : ""}
 
 ${forPdf ? `
-// ── PDF: wait for fonts + charts + equations, then print ─────────────────────
-document.fonts.ready.then(function(){
-  var max=8000,step=200,elapsed=0;
-  var t=setInterval(function(){
-    elapsed+=step;
-    var chartsOk=!window.__CHARTS||!window.__CHARTS.length||
-      document.querySelectorAll('.chart-canvas-wrap canvas').length===
-      document.querySelectorAll('canvas[data-rendered]').length;
-    if(elapsed>=max||chartsOk){
-      clearInterval(t);
-      setTimeout(function(){window.print();},500);
+// ── PDF auto-print: poll until charts+KaTeX+images are ready, then print ──────
+(function(){
+  var MAX=20000, STEP=250, elapsed=0;
+  function attempt(){
+    elapsed+=STEP;
+    var allReady=window.__chartsReady&&window.__katexReady&&window.__imagesReady;
+    if(allReady||elapsed>=MAX){
+      // Double rAF — ensures browser has painted the final frame before print dialog
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          setTimeout(function(){window.print();},300);
+        });
+      });
+    }else{
+      setTimeout(attempt,STEP);
     }
-  },step);
-});
+  }
+  if(document.fonts&&document.fonts.ready){
+    document.fonts.ready.then(function(){setTimeout(attempt,200);});
+  }else{
+    setTimeout(attempt,800);
+  }
+})();
 ` : `
-// ── Print button ──────────────────────────────────────────────────────────────
+// ── Print / Save PDF button ───────────────────────────────────────────────────
 var pb=document.getElementById('print-btn');
-if(pb) pb.addEventListener('click',function(){window.print();});
+if(pb)pb.addEventListener('click',function(){window.print();});
 `}
 `;
 
 // ─── HTML document builder ────────────────────────────────────────────────────
 
-const buildHtml = (note: Note, forPdf = false): string => {
+const buildHtml = (note: Note, forPdf = false, mediaMap: MediaMap = new Map()): string => {
   _charts = [];
   _cid = 0;
 
@@ -1399,12 +1624,35 @@ const buildHtml = (note: Note, forPdf = false): string => {
   const updated = note.updatedAt && note.updatedAt !== note.createdAt ? fmtDate(note.updatedAt) : "";
 
   const pdfOverride = forPdf ? `
-    .topbar{display:none!important}body{padding-top:0;background:#fff}
-    .page{max-width:100%;padding:0 0 20px}
-    .table-outer,.table-scroll{overflow:visible}
-    table{min-width:unset}th,td{white-space:normal}
+    /* ── PDF layout overrides ── */
+    .topbar{display:none!important}
+    body{padding-top:0!important;background:#fff!important}
+    .page{max-width:100%!important;padding:0 0 20px!important}
+    /* Tables: show all columns */
+    .table-outer,.table-scroll{overflow:visible!important}
+    table{min-width:unset!important;width:100%!important}
+    th,td{white-space:normal!important}
+    /* Charts: fixed height so canvas is visible */
+    .chart-canvas-wrap{height:280px!important;position:relative!important}
+    .chart-canvas-wrap canvas{position:absolute!important;inset:0!important;width:100%!important;height:100%!important}
+    .chart-card{break-inside:avoid!important}
+    /* Force all details open */
+    details{display:block!important}
+    details>summary~*{display:block!important}
+    .toggle-body,.faq-a{display:block!important;visibility:visible!important;height:auto!important;overflow:visible!important}
+    /* Tabs: show all panels stacked */
+    .tabs-nav,.screen-only{display:none!important}
+    .tab-panel{display:block!important;border-top:1px solid #e4e4e7;padding:14px 0!important}
+    .tab-panel[data-panel]::before{content:attr(data-panel);display:none}
+    .print-only{display:block!important}
+    /* Kanban: wrap columns */
+    .kanban-scroll{flex-wrap:wrap!important;overflow:visible!important}
+    /* Page settings */
     @page{size:A4;margin:18mm 16mm}
-    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+    /* Page breaks */
+    .step,.swot-cell,.tl-row,.faq-item,.toggle{break-inside:avoid}
+    h1,h2,h3,.h1,.h2,.h3{break-after:avoid}
   ` : "";
 
   const topbar = forPdf ? "" : `
@@ -1416,7 +1664,7 @@ const buildHtml = (note: Note, forPdf = false): string => {
   </div>
 </header>`;
 
-  return `<!DOCTYPE html>
+  let finalHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -1451,6 +1699,29 @@ ${body}
 <script>${makeJS(forPdf, hasCharts, hasEquations)}<\/script>
 </body>
 </html>`;
+
+  // ── Inline media: swap every local URL in src/href attributes with its data URI ──
+  // This is done on the raw HTML string so it catches ALL blocks including
+  // nested ones inside columns, tabs, gallery, imageText etc.
+  if (mediaMap.size > 0) {
+    mediaMap.forEach((dataUri, originalUrl) => {
+      if (dataUri === originalUrl) return; // fetch failed — leave as-is
+      // Escape the URL for use in a regex (handles blob:, ?query=, etc.)
+      const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Replace in src="..." and href="..." attributes
+      finalHtml = finalHtml.replace(
+        new RegExp(`(src|href)="${escaped}"`, "g"),
+        `$1="${dataUri}"`
+      );
+    });
+  }
+
+  // For PDF: replace lazy loading with eager so images load immediately
+  if (forPdf) {
+    finalHtml = finalHtml.replace(/loading="lazy"/g, 'loading="eager"');
+  }
+
+  return finalHtml;
 };
 
 // ─── Download helper ──────────────────────────────────────────────────────────
@@ -1468,23 +1739,126 @@ const dl = (content: string, name: string, mime: string) => {
 
 const safeName = (t: string) => t.replace(/[^a-z0-9]/gi,"_").slice(0,50)||"note";
 
-// ─── PDF export ───────────────────────────────────────────────────────────────
+// ─── Media inlining for PDF ───────────────────────────────────────────────────
+//
+// The PDF opens as a blob: URL which is a different origin from the app.
+// Any image/audio/video with a relative path, blob: URL, or localhost URL
+// becomes a cross-origin request and fails to load.
+//
+// Solution: before building the PDF HTML, fetch every media URL that could
+// be "local" (relative, blob:, or same-origin http://localhost) and convert
+// it to a base64 data URI. Those get embedded directly in the HTML so the
+// blob: document has no external dependencies for media.
 
-const exportPdf = (note: Note) => {
-  const html = buildHtml(note, true);
-  const win  = window.open("","_blank");
-  if (!win) {
-    dl(html, `${safeName(note.title)}_print.html`, "text/html");
-    return;
+type MediaMap = Map<string, string>; // original URL → data URI (or original if fetch fails)
+
+/** Fetch a URL and return a base64 data URI. Returns the original URL on failure. */
+const urlToDataUri = async (url: string): Promise<string> => {
+  if (!url) return url;
+  // Already a data URI — nothing to do
+  if (url.startsWith("data:")) return url;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return url;
+    const blob = await res.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("FileReader failed"));
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return url; // Network error or CORS — keep original, may not show but won't crash
   }
-  win.document.write(html);
-  win.document.close();
+};
+
+/**
+ * Collect every media URL from all blocks that needs inlining
+ * (local/blob/relative/localhost), fetch them all in parallel,
+ * return a Map from original URL → data URI.
+ */
+const inlineNoteMedia = async (note: Note): Promise<MediaMap> => {
+  const map: MediaMap = new Map();
+
+  // Decide if a URL needs inlining: local files, blob: URLs, and same-host URLs
+  const needsInline = (url: string | undefined): url is string => {
+    if (!url) return false;
+    if (url.startsWith("data:")) return false; // already inlined
+    if (url.startsWith("blob:")) return true;
+    if (url.startsWith("file:")) return true;
+    // Relative paths (no protocol)
+    if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("//")) return true;
+    // Same host as the app (e.g. http://localhost:3000/uploads/…)
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname === window.location.hostname) return true;
+    } catch { /* not a valid absolute URL — treat as relative */ return true; }
+    return false;
+  };
+
+  // Walk every block and collect URLs that need inlining
+  const urls = new Set<string>();
+  const collectFromBlock = (block: NoteBlock) => {
+    if (needsInline(block.imageUrl))       urls.add(block.imageUrl!);
+    if (needsInline(block.videoUrl))       urls.add(block.videoUrl!);
+    if (needsInline(block.audioUrl))       urls.add(block.audioUrl!);
+    if (needsInline(block.fileUrl))        urls.add(block.fileUrl!);
+    if (needsInline(block.imageTextUrl))   urls.add(block.imageTextUrl!);
+    block.galleryImages?.forEach(img => { if (needsInline(img.url)) urls.add(img.url); });
+    block.columns?.forEach(col => col.forEach(collectFromBlock));
+    block.tabsData?.forEach(tab => tab.blocks?.forEach(collectFromBlock));
+  };
+  note.blocks.forEach(collectFromBlock);
+
+  if (!urls.size) return map;
+
+  // Fetch all in parallel
+  const entries = await Promise.all(
+    [...urls].map(async url => [url, await urlToDataUri(url)] as [string, string])
+  );
+  entries.forEach(([url, dataUri]) => map.set(url, dataUri));
+  return map;
+};
+
+// ─── PDF export ───────────────────────────────────────────────────────────────
+//
+// 1. Fetch every local/blob/relative media URL → base64 data URI (parallel)
+// 2. Build self-contained HTML with all media inlined
+// 3. Open as blob: URL via programmatic <a> click (never popup-blocked)
+// 4. The opened page auto-calls window.print() once charts+KaTeX are ready
+
+const exportPdf = async (note: Note): Promise<void> => {
+  // Step 1 — convert all local media to data URIs so the blob: doc is self-contained
+  const mediaMap = await inlineNoteMedia(note);
+
+  // Step 2 — build full print-ready HTML with inlined media
+  const html = buildHtml(note, true, mediaMap);
+
+  // Step 3 — Blob URL + programmatic <a> click (never blocked as popup)
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+
+  try {
+    a.click();
+    // Keep Blob URL alive 2 min — enough for tab load + print dialog
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  } catch {
+    URL.revokeObjectURL(url);
+    dl(html, `${safeName(note.title)}_print.html`, "text/html");
+  } finally {
+    document.body.removeChild(a);
+  }
 };
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export const useNoteExport = () => {
-  const exportNote = useCallback((note: Note, format: ExportFormat) => {
+  const exportNote = useCallback(async (note: Note, format: ExportFormat) => {
     const name = safeName(note.title);
     switch (format) {
       case "markdown": {
@@ -1503,14 +1877,10 @@ export const useNoteExport = () => {
         dl(buildHtml(note, false), `${name}.html`, "text/html");
         break;
       case "pdf":
-        exportPdf(note);
+        await exportPdf(note);
         break;
       case "json":
-        dl(
-          JSON.stringify(note, null, 2),
-          `${name}.json`,
-          "application/json"
-        );
+        dl(JSON.stringify(note, null, 2), `${name}.json`, "application/json");
         break;
     }
   }, []);
