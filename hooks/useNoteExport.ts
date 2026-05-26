@@ -782,19 +782,51 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       const rIdxOf = new Map<string, number>();
       const lIdxOf = new Map<string, number>();
 
-      // ── Step 7: Arrowhead markers (one per unique node color) ──────────────
+      // ── Step 7: Arrowhead markers + gradient/filter defs (one per unique color) ─
       const uniqueHex = new Set<string>();
       nodes.forEach(n => uniqueHex.add(toHex(n.color || "bg-blue-500", "#3b82f6")));
-      const arrowDefs = [...uniqueHex].map(hex => {
-        const mid = `am${hex.replace('#', '')}`;
-        return `<marker id="${mid}" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">` +
-               `<path d="M0,0.5 L9,3.5 L0,6.5 Z" fill="${hex}"/>` +
-               `</marker>`;
-      }).join("");
+
+      const arrowDefs = [
+        // Shared drop-shadow filter for nodes
+        `<filter id="mm-shadow" x="-20%" y="-20%" width="140%" height="140%">` +
+          `<feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#00000018"/>` +
+        `</filter>`,
+        // Subtle glow filter for source nodes
+        `<filter id="mm-glow" x="-30%" y="-30%" width="160%" height="160%">` +
+          `<feGaussianBlur stdDeviation="4" result="blur"/>` +
+          `<feComposite in="SourceGraphic" in2="blur" operator="over"/>` +
+        `</filter>`,
+        // Per-color arrow markers + gradient defs
+        ...[...uniqueHex].map(hex => {
+          const id    = hex.replace('#', '');
+          const mid   = `am${id}`;
+          const gid   = `mg${id}`;
+          const egid  = `eg${id}`;
+          // Hex → RGB for rgba() use
+          const r = parseInt(hex.slice(1,3),16), g2 = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+          return [
+            // Elegant filled arrowhead — slim triangle, refX=6 so tip aligns with path endpoint
+            `<marker id="${mid}" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">` +
+              `<path d="M0,0.5 L6,3.5 L0,6.5 Z" fill="${hex}" opacity="0.9"/>` +
+            `</marker>`,
+            // Radial gradient fill for source nodes
+            `<radialGradient id="${gid}" cx="35%" cy="30%" r="65%">` +
+              `<stop offset="0%" stop-color="${hex}" stop-opacity="1"/>` +
+              `<stop offset="100%" stop-color="${hex}" stop-opacity="0.82"/>` +
+            `</radialGradient>`,
+            // Linear gradient for edges (color → transparent)
+            `<linearGradient id="${egid}" x1="0%" y1="0%" x2="100%" y2="0%">` +
+              `<stop offset="0%" stop-color="rgba(${r},${g2},${b},0.55)"/>` +
+              `<stop offset="100%" stop-color="rgba(${r},${g2},${b},0.85)"/>` +
+            `</linearGradient>`,
+          ].join("");
+        })
+      ].join("");
 
       // ── Step 8: Draw edges ─────────────────────────────────────────────────
-      const edgeSvg: string[] = [];
-      const labelSvg: string[] = [];
+      const edgeGlowSvg: string[] = [];   // layer 1 — soft glow halos (drawn first / bottom)
+      const edgeMainSvg: string[] = [];   // layer 2 — main strokes + arrowheads
+      const labelSvg: string[] = [];      // layer 3 — edge labels (above strokes, below nodes)
       let backCount = 0;
 
       validConns.forEach(c => {
@@ -809,73 +841,82 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
         let pathD = "", lx = 0, ly = 0;
 
         if (isBack(c.from, c.to)) {
-          // Back-edge: arc along the bottom, below all nodes, staggered
+          // Back-edge: graceful arc below all nodes
           backCount++;
           const allMaxY = Math.max(...[...pos.values()].map(p => p.y + NH));
-          const arcY = allMaxY + 28 + backCount * 32;
+          const arcY = allMaxY + 36 + backCount * 38;
+          // Start from bottom-center of source, end at bottom-center of target
           const sx = fp.cx, sy = fp.y + NH;
-          const tx2 = tp.cx, ty2 = tp.y + NH;
+          const ex = tp.cx, ey = tp.y + NH;
           pathD = `M${sx.toFixed(1)},${sy.toFixed(1)} ` +
                   `C${sx.toFixed(1)},${arcY.toFixed(1)} ` +
-                  `${tx2.toFixed(1)},${arcY.toFixed(1)} ` +
-                  `${tx2.toFixed(1)},${ty2.toFixed(1)}`;
-          lx = (sx + tx2) / 2;
-          ly = arcY - 6;
+                  `${ex.toFixed(1)},${arcY.toFixed(1)} ` +
+                  `${ex.toFixed(1)},${ey.toFixed(1)}`;
+          lx = (sx + ex) / 2;
+          ly = arcY - 8;
         } else {
-          // Forward edge: staggered port bezier
+          // Forward edge: smooth port-routed bezier
           const ri = rIdxOf.get(c.from) ?? 0;
           const li = lIdxOf.get(c.to)   ?? 0;
           rIdxOf.set(c.from, ri + 1);
           lIdxOf.set(c.to,   li + 1);
 
-          const fy = (rPortsOf.get(c.from) ?? [fp.cy])[ri] ?? fp.cy;
+          const fy  = (rPortsOf.get(c.from) ?? [fp.cy])[ri] ?? fp.cy;
           const ty2 = (lPortsOf.get(c.to)  ?? [tp.cy])[li] ?? tp.cy;
 
+          // Source port: right edge of source node
           const sx  = fp.x + NW;
-          const tx2 = tp.x - 10;         // leave 10px gap for arrowhead
+          // Target port: left edge of target node (arrowhead tip sits here)
+          const tx2 = tp.x;
           const cpx = sx + (tx2 - sx) * 0.5;
 
           if (sx >= tp.x) {
-            // Edge going right-to-left (back in layout terms, not DFS-back)
-            // Route with a big arc above or below to avoid crossing nodes
+            // Right-to-left: sweep arc cleanly above/below
             const arcAbove = fp.cy < tp.cy;
             const midY = arcAbove
-              ? Math.min(fy, ty2) - 60
-              : Math.max(fy, ty2) + 60;
+              ? Math.min(fy, ty2) - 70
+              : Math.max(fy, ty2) + 70;
             pathD = `M${sx.toFixed(1)},${fy.toFixed(1)} ` +
-                    `C${(sx+50).toFixed(1)},${fy.toFixed(1)} ` +
-                    `${(sx+50).toFixed(1)},${midY.toFixed(1)} ` +
+                    `C${(sx+60).toFixed(1)},${fy.toFixed(1)} ` +
+                    `${(sx+60).toFixed(1)},${midY.toFixed(1)} ` +
                     `${((sx + tx2)/2).toFixed(1)},${midY.toFixed(1)} ` +
-                    `S${(tx2-40).toFixed(1)},${ty2.toFixed(1)} ${tx2.toFixed(1)},${ty2.toFixed(1)}`;
+                    `S${(tx2-50).toFixed(1)},${ty2.toFixed(1)} ${tx2.toFixed(1)},${ty2.toFixed(1)}`;
             lx = (sx + tx2) / 2;
-            ly = midY - 14;
+            ly = midY - 16;
           } else {
             pathD = `M${sx.toFixed(1)},${fy.toFixed(1)} ` +
                     `C${cpx.toFixed(1)},${fy.toFixed(1)} ` +
                     `${cpx.toFixed(1)},${ty2.toFixed(1)} ` +
                     `${tx2.toFixed(1)},${ty2.toFixed(1)}`;
-            // Put label at 50% along the bezier — approx midpoint
             lx = sx + (tx2 - sx) * 0.5;
-            ly = fy + (ty2 - fy) * 0.5 - 11;
+            ly = fy + (ty2 - fy) * 0.5 - 12;
           }
         }
 
-        edgeSvg.push(
-          `<path d="${pathD}" stroke="${fHex}" stroke-width="1.7" fill="none" ` +
-          `opacity=".7" stroke-linecap="round" stroke-linejoin="round" ` +
+        // Layer 1 — Ghost/glow halo behind the main stroke
+        edgeGlowSvg.push(
+          `<path d="${pathD}" stroke="${fHex}" stroke-width="5" fill="none" ` +
+          `opacity=".07" stroke-linecap="round" stroke-linejoin="round"/>`
+        );
+        // Layer 2 — Main edge stroke + arrowhead
+        edgeMainSvg.push(
+          `<path d="${pathD}" stroke="${fHex}" stroke-width="2" fill="none" ` +
+          `opacity=".80" stroke-linecap="round" stroke-linejoin="round" ` +
           `marker-end="url(#${markId})"/>`
         );
 
         if (label) {
-          const lw = label.length * 6.5 + 18;
+          const lw = Math.max(label.length * 6.8 + 22, 28);
+          const lh2 = 18;
           labelSvg.push(
-            `<rect x="${(lx - lw/2).toFixed(1)}" y="${(ly - 8).toFixed(1)}" ` +
-            `width="${lw.toFixed(1)}" height="15" rx="7.5" ` +
-            `fill="white" stroke="${fHex}" stroke-width="1" opacity=".95"/>` +
-            `<text x="${lx.toFixed(1)}" y="${(ly + 3.5).toFixed(1)}" ` +
-            `text-anchor="middle" font-size="9" fill="${fHex}" ` +
+            `<rect x="${(lx - lw/2).toFixed(1)}" y="${(ly - lh2/2).toFixed(1)}" ` +
+            `width="${lw.toFixed(1)}" height="${lh2}" rx="${(lh2/2).toFixed(0)}" ` +
+            `fill="white" stroke="${fHex}" stroke-width="1.2" opacity=".97" ` +
+            `filter="url(#mm-shadow)"/>` +
+            `<text x="${lx.toFixed(1)}" y="${(ly + 4.5).toFixed(1)}" ` +
+            `text-anchor="middle" font-size="9.5" fill="${fHex}" ` +
             `font-family="-apple-system,'SF Pro Text',sans-serif" ` +
-            `font-weight="700" letter-spacing=".02em">${esc(label)}</text>`
+            `font-weight="700" letter-spacing=".03em">${esc(label)}</text>`
           );
         }
       });
@@ -883,13 +924,23 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       // ── Step 9: Draw nodes ─────────────────────────────────────────────────
       const drawN = (n: typeof nodes[0], ox: number, oy: number) => {
         const hex    = toHex(n.color || "bg-blue-500", "#3b82f6");
-        const hasIn  = validConns.some(c => c.to   === n.id && !isBack(c.from, c.to));
-        const fill   = hasIn ? hex + "1e" : hex;   // source nodes: solid; others: tinted
-        const textC  = hasIn ? hex : "#fff";
-        const sw     = hasIn ? "1.5" : "2.5";
-        const sty    = (n.bold?"font-weight:700;":"") + (n.italic?"font-style:italic;":"") +
-                       (n.underline?"text-decoration:underline;":"") +
-                       "font-family:-apple-system,'SF Pro Text',sans-serif;";
+        const gid    = `mg${hex.replace('#', '')}`;
+        const hasIn  = validConns.some(c => c.to === n.id && !isBack(c.from, c.to));
+        // Source nodes: rich gradient fill; child nodes: light tinted background
+        const fill   = hasIn ? hex + "1a" : `url(#${gid})`;
+        const textC  = hasIn ? hex : "#ffffff";
+        const sw     = hasIn ? "1.5" : "0";         // border only on tinted nodes
+        const strokeC = hasIn ? hex + "60" : "none";
+
+        // Derive a lighter shade for the inner highlight line on solid nodes
+        const r3 = parseInt(hex.slice(1,3),16), g3 = parseInt(hex.slice(3,5),16), b3 = parseInt(hex.slice(5,7),16);
+        const lighten = (v: number) => Math.min(255, v + 55);
+        const hlHex = `#${[r3,g3,b3].map(v => lighten(v).toString(16).padStart(2,'0')).join('')}`;
+
+        const sty = (n.bold    ? "font-weight:700;" : "font-weight:500;") +
+                    (n.italic  ? "font-style:italic;" : "") +
+                    (n.underline ? "text-decoration:underline;" : "") +
+                    "font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;";
         const cx = ox + NW / 2, cy = oy + NH / 2;
 
         // Word wrap at 16 chars
@@ -904,24 +955,53 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
         if (cur2) lns.push(cur2);
 
         const lh = 15, th = lns.length * lh;
-        const nodeH = Math.max(NH, th + 16);
-        const ty0 = oy + (nodeH / 2) - (th / 2) + lh - 4;
+        const nodeH = Math.max(NH, th + 18);
+        const ty0 = oy + (nodeH / 2) - (th / 2) + lh - 3;
 
         const textEls = lns.map((l2, i) =>
           `<text x="${cx.toFixed(1)}" y="${(ty0 + i*lh).toFixed(1)}" ` +
-          `text-anchor="middle" font-size="12" fill="${textC}" style="${sty}">${esc(l2)}</text>`
+          `text-anchor="middle" font-size="12.5" fill="${textC}" style="${sty}">${esc(l2)}</text>`
         ).join("");
 
         const shape = n.shape ?? "rectangle";
         let shp = "";
+
         if (shape === "diamond") {
-          shp = `<polygon points="${cx},${oy-6} ${ox+NW+6},${cy} ${cx},${oy+nodeH+6} ${ox-6},${cy}" fill="${fill}" stroke="${hex}" stroke-width="${sw}"/>`;
+          // Diamond with shadow
+          shp =
+            `<polygon points="${cx},${oy-8} ${ox+NW+8},${cy} ${cx},${oy+nodeH+8} ${ox-8},${cy}" ` +
+            `fill="${fill}" stroke="${strokeC}" stroke-width="${sw}" filter="url(#mm-shadow)"/>`;
+          // Inner highlight line near top edge
+          if (!hasIn) shp +=
+            `<polygon points="${cx},${oy-2} ${ox+NW+2},${cy} ${cx},${(oy+nodeH*0.3).toFixed(1)} ${ox-2},${cy}" ` +
+            `fill="${hlHex}" opacity="0.15"/>`;
         } else if (shape === "oval") {
-          shp = `<ellipse cx="${cx}" cy="${oy+nodeH/2}" rx="${NW/2}" ry="${nodeH/2}" fill="${fill}" stroke="${hex}" stroke-width="${sw}"/>`;
+          const rx = NW / 2, ry = nodeH / 2;
+          shp =
+            `<ellipse cx="${cx}" cy="${(oy+nodeH/2).toFixed(1)}" rx="${rx}" ry="${ry}" ` +
+            `fill="${fill}" stroke="${strokeC}" stroke-width="${sw}" filter="url(#mm-shadow)"/>`;
+          if (!hasIn) shp +=
+            `<ellipse cx="${(cx - rx*0.12).toFixed(1)}" cy="${(oy+nodeH/2 - ry*0.28).toFixed(1)}" ` +
+            `rx="${(rx*0.45).toFixed(1)}" ry="${(ry*0.22).toFixed(1)}" ` +
+            `fill="${hlHex}" opacity="0.22"/>`;
         } else {
-          shp = `<rect x="${ox}" y="${oy}" width="${NW}" height="${nodeH}" rx="10" fill="${fill}" stroke="${hex}" stroke-width="${sw}"/>`;
+          // Rounded rectangle
+          const rx2 = 12;
+          shp =
+            `<rect x="${ox}" y="${oy}" width="${NW}" height="${nodeH}" rx="${rx2}" ` +
+            `fill="${fill}" stroke="${strokeC}" stroke-width="${sw}" filter="url(#mm-shadow)"/>`;
+          // Subtle top-edge gloss highlight on solid nodes
+          if (!hasIn) shp +=
+            `<rect x="${(ox+4).toFixed(1)}" y="${(oy+3).toFixed(1)}" width="${NW-8}" height="${(nodeH*0.38).toFixed(1)}" rx="${rx2-2}" ` +
+            `fill="${hlHex}" opacity="0.13"/>`;
         }
-        return shp + textEls;
+
+        // Port dot — small circle on the right edge (exit point) for source nodes
+        const portDot = !hasIn
+          ? `<circle cx="${(ox+NW).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="#fff" opacity=".55"/>`
+          : "";
+
+        return shp + textEls + portDot;
       };
 
       const nodesSvg = graphNodes.map(n => {
@@ -939,9 +1019,9 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       if (floatNodes.length) {
         const allMaxX = Math.max(...[...pos.values()].map(p => p.x + NW), PAD + NW);
         floatLbl =
-          `<text x="${PAD}" y="${floatY0 - 10}" font-size="9" fill="#aaa" ` +
-          `font-weight="700" letter-spacing=".12em" ` +
-          `font-family="-apple-system,sans-serif">STANDALONE</text>`;
+          `<text x="${PAD}" y="${floatY0 - 14}" font-size="9" fill="#94a3b8" ` +
+          `font-weight="800" letter-spacing=".15em" text-decoration="none" ` +
+          `font-family="-apple-system,sans-serif">STANDALONE NODES</text>`;
         floatNodes.forEach((n, i) => {
           const col = i % 4;
           const row = Math.floor(i / 4);
@@ -958,16 +1038,57 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       const floatRows  = Math.ceil(floatNodes.length / 4);
       const svgH = floatY0 + (floatNodes.length ? floatRows * (NH + NV_GAP) + PAD : 0);
 
+      // ── Node background knockout layer ─────────────────────────────────────
+      // Drawn between labels and nodes. Each knockout is a white/near-white
+      // filled shape matching the node's geometry — it paints over any edge
+      // segment that passes through a node area before the node itself is drawn.
+      const knockoutSvg = [
+        ...graphNodes.map(n => {
+          const p = pos.get(n.id); if (!p) return "";
+          const shape = n.shape ?? "rectangle";
+          const cx = p.x + NW / 2, cy = p.y + NH / 2;
+          // Use a slightly larger inset so the node fill covers edge bleed
+          if (shape === "diamond") {
+            return `<polygon points="${cx},${p.y-10} ${p.x+NW+10},${cy} ${cx},${p.y+NH+10} ${p.x-10},${cy}" fill="#f8f9fc"/>`;
+          } else if (shape === "oval") {
+            return `<ellipse cx="${cx}" cy="${cy}" rx="${NW/2+2}" ry="${NH/2+2}" fill="#f8f9fc"/>`;
+          } else {
+            return `<rect x="${p.x-2}" y="${p.y-2}" width="${NW+4}" height="${NH+4}" rx="13" fill="#f8f9fc"/>`;
+          }
+        }),
+        ...floatNodes.map((n, i) => {
+          const col = i % 4, row = Math.floor(i / 4);
+          const ox = PAD + col * (NW + LH_GAP), oy = floatY0 + row * (NH + NV_GAP);
+          const shape = n.shape ?? "rectangle";
+          const cx = ox + NW / 2, cy = oy + NH / 2;
+          if (shape === "diamond") {
+            return `<polygon points="${cx},${oy-10} ${ox+NW+10},${cy} ${cx},${oy+NH+10} ${ox-10},${cy}" fill="#f8f9fc"/>`;
+          } else if (shape === "oval") {
+            return `<ellipse cx="${cx}" cy="${cy}" rx="${NW/2+2}" ry="${NH/2+2}" fill="#f8f9fc"/>`;
+          } else {
+            return `<rect x="${ox-2}" y="${oy-2}" width="${NW+4}" height="${NH+4}" rx="13" fill="#f8f9fc"/>`;
+          }
+        }),
+      ].join("");
+
       return (
         `<div class="mindmap-wrap">` +
         `<svg viewBox="0 0 ${svgW.toFixed(0)} ${Math.max(svgH, 200).toFixed(0)}" ` +
         `xmlns="http://www.w3.org/2000/svg" class="mindmap-svg" ` +
         `style="min-height:${Math.min(Math.max(svgH, 180), 600).toFixed(0)}px">` +
         `<defs>${arrowDefs}</defs>` +
-        edgeSvg.join("") +
-        labelSvg.join("") +
-        nodesSvg +
-        floatLbl + floatSvg +
+        // Layer 1 — soft glow halos (bottom)
+        `<g class="mm-edge-glow">${edgeGlowSvg.join("")}</g>` +
+        // Layer 2 — main edge strokes + arrowheads
+        `<g class="mm-edge-main">${edgeMainSvg.join("")}</g>` +
+        // Layer 3 — edge labels (float above strokes)
+        `<g class="mm-edge-labels">${labelSvg.join("")}</g>` +
+        // Layer 4 — node background knockouts (erase edge bleed through node areas)
+        `<g class="mm-node-bg">${knockoutSvg}</g>` +
+        // Layer 5 — nodes and float nodes (top)
+        `<g class="mm-nodes">${nodesSvg}</g>` +
+        floatLbl +
+        `<g class="mm-float-nodes">${floatSvg}</g>` +
         `</svg></div>`
       );
     }
@@ -1484,9 +1605,21 @@ tbody tr:hover td{background:var(--surface2)}
 .it-img-local{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px 16px;background:#fffbeb;border:1px dashed #fde68a;border-radius:var(--r16);flex:0 0 42%;text-align:center}
 
 /* ── Mindmap SVG ── */
-.mindmap-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r16);padding:16px;margin:.9em 0;overflow:auto;box-shadow:var(--sh1)}
+.mindmap-wrap{
+  background: #f8f9fc;
+  background-image:
+    linear-gradient(rgba(99,102,241,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,.055) 1px, transparent 1px);
+  background-size: 28px 28px;
+  border:1px solid var(--border);
+  border-radius:var(--r16);
+  padding:24px 20px;
+  margin:.9em 0;
+  overflow:auto;
+  box-shadow: 0 2px 16px rgba(0,0,0,.07), 0 0 0 1px rgba(99,102,241,.06);
+}
 .mindmap-svg{width:100%;height:auto;display:block;overflow:visible}
-.mindmap-empty{padding:32px;text-align:center;color:var(--ink4);font-style:italic;background:var(--surface2);border-radius:var(--r12);margin:.9em 0}
+.mindmap-empty{padding:40px;text-align:center;color:var(--ink4);font-style:italic;background:var(--surface2);border-radius:var(--r12);margin:.9em 0}
 
 /* ── Flashcards ── */
 .flashcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin:.9em 0}
@@ -1593,6 +1726,19 @@ tbody tr:hover td{background:var(--surface2)}
   /* Charts keep their height */
   .chart-card{break-inside:avoid}
   .chart-canvas-wrap{height:260px}
+  .mindmap-wrap{
+    background:#f8f9fc!important;
+    background-image:
+      linear-gradient(rgba(99,102,241,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99,102,241,.05) 1px, transparent 1px)!important;
+    background-size:28px 28px!important;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+    page-break-inside:avoid;
+    break-inside:avoid;
+    overflow:visible!important;
+  }
+  .mindmap-svg{overflow:visible!important;width:100%!important}
   /* Other break rules */
   .step,.swot-cell,.faq-item,.tl-row,.kanban-col,.tab-print-section{break-inside:avoid}
   h1,h2,h3,.h1,.h2,.h3,.rule{break-after:avoid}
