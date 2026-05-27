@@ -198,18 +198,195 @@ const isLocal = (url = "") =>
   url.startsWith("blob:") || url.startsWith("file:") ||
   (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("//"));
 
-// Convert YouTube / Vimeo watch URLs → embeddable iframe src
-const videoEmbedUrl = (url = ""): string | null => {
-  // YouTube
-  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]+)/);
-  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0`;
-  // Vimeo
-  const vmMatch = url.match(/vimeo\.com\/(\d+)/);
-  if (vmMatch) return `https://player.vimeo.com/video/${vmMatch[1]}`;
-  return null;
+// ── URL host helper ────────────────────────────────────────────────────────────
+const urlHost = (url = "") => {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
 };
 
-// Guess icon for file type from extension / mime
+// ── Video embed resolver ───────────────────────────────────────────────────────
+// NOTE: YouTube, Vimeo, Loom etc. iframes are blocked on blob:/file:/ origins
+// (Error 153 / "Video unavailable" / CSP). We instead produce rich thumbnail
+// cards that open the video on click — works in every context.
+type VideoResult = {
+  type: "yt-card"|"vimeo-card"|"loom-card"|"wistia-card"|"generic-card"|"native-video"|"link";
+  videoId?: string;
+  iframeSrc?: string;   // kept for served-origin contexts (future)
+  thumbUrl?: string;
+  watchUrl: string;
+  label: string;
+};
+const resolveVideo = (url = ""): VideoResult => {
+  // YouTube — watch, shorts, youtu.be, nocookie, embed
+  const yt = url.match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (yt) {
+    const id = yt[1];
+    const t = url.match(/[?&]t=(\d+)/);
+    return {
+      type: "yt-card",
+      videoId: id,
+      thumbUrl: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      iframeSrc: `https://www.youtube-nocookie.com/embed/${id}?rel=0${t?`&start=${t[1]}`:""}`,
+      watchUrl: `https://www.youtube.com/watch?v=${id}${t?`&t=${t[1]}`:""}`,
+      label: "YouTube",
+    };
+  }
+  // Vimeo
+  const vm = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vm) {
+    return {
+      type: "vimeo-card",
+      videoId: vm[1],
+      thumbUrl: `https://vumbnail.com/${vm[1]}.jpg`,
+      iframeSrc: `https://player.vimeo.com/video/${vm[1]}?dnt=1`,
+      watchUrl: `https://vimeo.com/${vm[1]}`,
+      label: "Vimeo",
+    };
+  }
+  // Loom
+  const lm = url.match(/loom\.com\/share\/([a-f0-9]+)/);
+  if (lm) return { type: "loom-card", videoId: lm[1], iframeSrc: `https://www.loom.com/embed/${lm[1]}`, watchUrl: url, label: "Loom" };
+  // Wistia
+  const ws = url.match(/(?:wistia\.com|wi\.st)\/(?:medias|embed)\/([A-Za-z0-9]+)/);
+  if (ws) return { type: "wistia-card", videoId: ws[1], iframeSrc: `https://fast.wistia.net/embed/iframe/${ws[1]}`, watchUrl: url, label: "Wistia" };
+  // Dailymotion
+  const dm = url.match(/dailymotion\.com\/video\/([A-Za-z0-9]+)/);
+  if (dm) return { type: "generic-card", iframeSrc: `https://www.dailymotion.com/embed/video/${dm[1]}`, watchUrl: url, label: "Dailymotion" };
+  // Streamable
+  const sb = url.match(/streamable\.com\/([a-z0-9]+)$/);
+  if (sb) return { type: "generic-card", iframeSrc: `https://streamable.com/e/${sb[1]}`, watchUrl: url, label: "Streamable" };
+  // Twitch
+  const twCl = url.match(/twitch\.tv\/\w+\/clip\/([A-Za-z0-9_-]+)/);
+  if (twCl) return { type: "generic-card", watchUrl: url, label: "Twitch" };
+  const twVod = url.match(/twitch\.tv\/videos\/(\d+)/);
+  if (twVod) return { type: "generic-card", watchUrl: url, label: "Twitch" };
+  // Direct video file
+  if (/\.(mp4|webm|ogg|ogv|mov)(\?|$)/i.test(url)) return { type: "native-video", watchUrl: url, label: "Video" };
+  return { type: "link", watchUrl: url, label: urlHost(url) || "Video" };
+};
+
+// ── Audio embed resolver ───────────────────────────────────────────────────────
+type AudioResult = {
+  type: "native"|"spotify-track"|"spotify-playlist"|"soundcloud"|"apple"|"link";
+  src: string;
+  label?: string;
+  mimeHint?: string;  // optional <source type=""> hint
+};
+const resolveAudio = (url = ""): AudioResult => {
+  // Spotify track / episode
+  const spTr = url.match(/open\.spotify\.com\/(track|episode)\/([A-Za-z0-9]+)/);
+  if (spTr) return { type: "spotify-track", src: `https://open.spotify.com/embed/${spTr[1]}/${spTr[2]}?utm_source=generator`, label: "Spotify" };
+  // Spotify playlist / album / show / podcast
+  const spPl = url.match(/open\.spotify\.com\/(playlist|album|show|artist)\/([A-Za-z0-9]+)/);
+  if (spPl) return { type: "spotify-playlist", src: `https://open.spotify.com/embed/${spPl[1]}/${spPl[2]}?utm_source=generator`, label: "Spotify" };
+  // SoundCloud
+  if (/soundcloud\.com/.test(url)) return {
+    type: "soundcloud",
+    src: `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%236b8f71&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&visual=true`,
+    label: "SoundCloud",
+  };
+  // Apple Music / Podcasts
+  if (/music\.apple\.com|podcasts\.apple\.com/.test(url)) {
+    const em = url.replace("music.apple.com","embed.music.apple.com").replace("podcasts.apple.com","embed.podcasts.apple.com");
+    return { type: "apple", src: em, label: "Apple Music" };
+  }
+  // Known streaming / hosting platforms that need a link card (no embeddable player)
+  if (/tidal\.com|deezer\.com|amazon\.com\/music|music\.youtube\.com/.test(url)) {
+    return { type: "link", src: url, label: urlHost(url) || "Audio" };
+  }
+  // For everything else (including direct file URLs with or without extension,
+  // CDN-hosted audio, podcast episode MP3s, etc.) — use native <audio>.
+  // Detect MIME hint from extension if present so <source type> is correct.
+  const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || "";
+  const mimeMap: Record<string,string> = {
+    mp3:"audio/mpeg", wav:"audio/wav", ogg:"audio/ogg", oga:"audio/ogg",
+    aac:"audio/aac", flac:"audio/flac", opus:"audio/ogg;codecs=opus",
+    m4a:"audio/mp4", weba:"audio/webm", webm:"audio/webm",
+  };
+  return { type: "native", src: url, label: urlHost(url) || "Audio", mimeHint: mimeMap[ext] };
+};
+
+// ── File / embed resolver ─────────────────────────────────────────────────────
+type FileResult = { type: "pdf-iframe"|"gdoc"|"gsheet"|"gslide"|"office"|"codepen"|"codesandbox"|"stackblitz"|"jsfiddle"|"replit"|"figma"|"airtable"|"notion"|"generic-iframe"|"download"|"local"; label: string; iframeSrc?: string };
+const resolveFile = (url = "", name = ""): FileResult => {
+  if (!url) return { type: "local", label: "File" };
+  if (isLocal(url)) return { type: "local", label: name || url.split("/").pop() || "File" };
+  const h = urlHost(url);
+  // Google Docs/Sheets/Slides
+  if (/docs\.google\.com\/document/.test(url)) {
+    const em = url.replace(/\/edit.*$/, "/preview");
+    return { type: "gdoc", label: "Google Doc", iframeSrc: em };
+  }
+  if (/docs\.google\.com\/spreadsheets/.test(url)) {
+    const em = url.replace(/\/edit.*$/, "/preview");
+    return { type: "gsheet", label: "Google Sheet", iframeSrc: em };
+  }
+  if (/docs\.google\.com\/presentation/.test(url)) {
+    const em = url.replace(/\/edit.*$/, "/embed?start=false&loop=false&delayms=3000");
+    return { type: "gslide", label: "Google Slides", iframeSrc: em };
+  }
+  // Google Drive direct file
+  const gDrive = url.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)/);
+  if (gDrive) return { type: "pdf-iframe", label: "Google Drive", iframeSrc: `https://drive.google.com/file/d/${gDrive[1]}/preview` };
+  // Office 365 / OneDrive
+  if (/sharepoint\.com|1drv\.ms|onedrive\.live\.com/.test(url)) {
+    const em = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+    return { type: "office", label: "Office / OneDrive", iframeSrc: em };
+  }
+  // Direct PDF
+  const ext = (name || url).split(".").pop()?.toLowerCase() || "";
+  if (ext === "pdf" || url.includes(".pdf")) return { type: "pdf-iframe", label: "PDF", iframeSrc: url };
+  // CodePen
+  const cpMatch = url.match(/codepen\.io\/([^/]+)\/pen\/([A-Za-z0-9]+)/);
+  if (cpMatch) return { type: "codepen", label: "CodePen", iframeSrc: `https://codepen.io/${cpMatch[1]}/embed/${cpMatch[2]}?height=400&theme-id=light&default-tab=result` };
+  // CodeSandbox
+  const csMatch = url.match(/codesandbox\.io\/s\/([A-Za-z0-9_-]+)/);
+  if (csMatch) return { type: "codesandbox", label: "CodeSandbox", iframeSrc: `https://codesandbox.io/embed/${csMatch[1]}?fontsize=14&hidenavigation=1&theme=light` };
+  // StackBlitz
+  const sbMatch = url.match(/stackblitz\.com\/(?:edit|github)\/([A-Za-z0-9_/-]+)/);
+  if (sbMatch) return { type: "stackblitz", label: "StackBlitz", iframeSrc: `https://stackblitz.com/edit/${sbMatch[1]}?embed=1&view=preview` };
+  // JSFiddle
+  if (/jsfiddle\.net/.test(url)) return { type: "jsfiddle", label: "JSFiddle", iframeSrc: url.replace(/\/+$/, "") + "/embedded/result/" };
+  // Replit
+  if (/replit\.com/.test(url)) return { type: "replit", label: "Replit", iframeSrc: url.replace("replit.com", "replit.com") + "?embed=1" };
+  // Figma
+  if (/figma\.com\/(?:file|proto|design|board)/.test(url)) return { type: "figma", label: "Figma", iframeSrc: `https://www.figma.com/embed?embed_host=share&url=${encodeURIComponent(url)}` };
+  // Airtable
+  if (/airtable\.com/.test(url)) return { type: "airtable", label: "Airtable", iframeSrc: url.includes("/embed/") ? url : url.replace("airtable.com", "airtable.com/embed") };
+  // Notion
+  if (/notion\.so|notion\.site/.test(url)) return { type: "notion", label: "Notion", iframeSrc: url };
+  // Office file extensions
+  if (["doc","docx","xls","xlsx","ppt","pptx"].includes(ext)) {
+    const em = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+    return { type: "office", label: ext.toUpperCase(), iframeSrc: em };
+  }
+  // Download fallback
+  return { type: "download", label: name || url.split("/").pop() || "File" };
+};
+
+// ── Embed resolver (for dedicated embed blocks) ────────────────────────────────
+type EmbedResult = { type: "iframe"|"vid-card"|"link"; src: string; label: string; tall?: boolean; thumbUrl?: string; watchUrl?: string };
+const resolveEmbed = (url = ""): EmbedResult => {
+  // First try file resolver for code/doc embeds
+  const fr = resolveFile(url, "");
+  if (fr.iframeSrc && fr.type !== "local" && fr.type !== "download") {
+    const tall = ["codepen","codesandbox","stackblitz","replit","jsfiddle","figma"].includes(fr.type);
+    return { type: "iframe", src: fr.iframeSrc, label: fr.label, tall };
+  }
+  // Then try video resolver — return as card (not iframe) to avoid origin errors
+  const vr = resolveVideo(url);
+  if (vr.type === "yt-card" || vr.type === "vimeo-card" || vr.type === "loom-card" || vr.type === "generic-card" || vr.type === "wistia-card") {
+    return { type: "vid-card", src: vr.watchUrl, label: vr.label, thumbUrl: vr.thumbUrl, watchUrl: vr.watchUrl };
+  }
+  // Then try audio (spotify/soundcloud get iframes)
+  const ar = resolveAudio(url);
+  if (ar.type !== "native" && ar.type !== "link") {
+    return { type: "iframe", src: ar.src, label: ar.label || "Audio", tall: false };
+  }
+  // Generic embeddable URL
+  return { type: "link", src: url, label: urlHost(url) || "Embed" };
+};
+
+// ── File icon ─────────────────────────────────────────────────────────────────
 const fileIcon = (name = "", url = "") => {
   const ext = (name || url).split(".").pop()?.toLowerCase() || "";
   if (["pdf"].includes(ext)) return "📄";
@@ -220,7 +397,35 @@ const fileIcon = (name = "", url = "") => {
   if (["jpg","jpeg","png","gif","webp","svg","ico"].includes(ext)) return "🖼";
   if (["mp4","mov","avi","mkv","webm"].includes(ext)) return "🎬";
   if (["mp3","wav","ogg","aac","flac"].includes(ext)) return "🎵";
+  if (["js","ts","jsx","tsx","html","css","py","go","rs","java","c","cpp","sh"].includes(ext)) return "💻";
+  if (["md","txt"].includes(ext)) return "📃";
+  if (["json","yaml","yml","xml","env"].includes(ext)) return "⚙️";
   return "📎";
+};
+
+// ── Service branding ─────────────────────────────────────────────────────────
+const serviceBadge = (label: string) => {
+  const badges: Record<string,{bg:string;fg:string;icon:string}> = {
+    "YouTube":    { bg:"#ff0000", fg:"#fff", icon:"▶" },
+    "Vimeo":      { bg:"#1ab7ea", fg:"#fff", icon:"▶" },
+    "Loom":       { bg:"#625df5", fg:"#fff", icon:"▶" },
+    "Spotify":    { bg:"#1db954", fg:"#fff", icon:"♫" },
+    "SoundCloud": { bg:"#ff5500", fg:"#fff", icon:"♬" },
+    "Apple Music":{ bg:"#fc3c44", fg:"#fff", icon:"♫" },
+    "CodePen":    { bg:"#1e1f26", fg:"#fff", icon:"✏" },
+    "CodeSandbox":{ bg:"#040404", fg:"#fff", icon:"⬡" },
+    "StackBlitz": { bg:"#1374ef", fg:"#fff", icon:"⚡" },
+    "JSFiddle":   { bg:"#0084ff", fg:"#fff", icon:"⌨" },
+    "Replit":     { bg:"#f26207", fg:"#fff", icon:"▶" },
+    "Figma":      { bg:"#f24e1e", fg:"#fff", icon:"◈" },
+    "Google Doc": { bg:"#4285f4", fg:"#fff", icon:"📄" },
+    "Google Sheet":{ bg:"#0f9d58",fg:"#fff", icon:"📊" },
+    "Google Slides":{ bg:"#f4b400",fg:"#fff",icon:"📋" },
+    "Airtable":   { bg:"#2d7ff9", fg:"#fff", icon:"⊞" },
+  };
+  const b = badges[label];
+  if (!b) return `<span class="svc-badge svc-badge-default">${label}</span>`;
+  return `<span class="svc-badge" style="background:${b.bg};color:${b.fg}">${b.icon} ${label}</span>`;
 };
 
 // ── Numbered list counter ─────────────────────────────────────────────────────
@@ -540,40 +745,203 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       return `<figure class="img-fig"><img src="${esc(block.imageUrl)}" alt="Image" loading="lazy"></figure>`;
     }
 
-    // ── Video — local native player / YouTube+Vimeo embed / external link ─────
+    // ── Video — local card / YT+Vimeo thumbnail card / native file ────────────
     case "video": {
       if (!block.videoUrl) return "";
-      const local = isLocal(block.videoUrl);
-      if (local) {
-        return `<div class="media-block"><video controls class="native-video"><source src="${esc(block.videoUrl)}"><p class="media-fallback">Your browser cannot play this video. <a href="${esc(block.videoUrl)}" download>Download file</a></p></video><div class="media-local-hint">📁 Local file — plays only on the original device</div></div>`;
+      if (isLocal(block.videoUrl)) {
+        const fname = block.videoUrl.split("/").pop() || "video";
+        return `<div class="media-local-card">
+  <div class="mlc-icon">🎬</div>
+  <div class="mlc-body">
+    <div class="mlc-label">Local Video</div>
+    <div class="mlc-name">${esc(fname)}</div>
+    <div class="mlc-hint">This video is stored on your device — it won't play in exported HTML.</div>
+  </div>
+</div>`;
       }
-      const embed = videoEmbedUrl(block.videoUrl);
-      if (embed) {
-        return `<div class="media-block"><div class="video-embed-wrap"><iframe src="${esc(embed)}" frameborder="0" allowfullscreen loading="lazy" title="Video" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture"></iframe></div></div>`;
+      const vr = resolveVideo(block.videoUrl);
+
+      // YouTube — thumbnail card with play button overlay, opens on click
+      if (vr.type === "yt-card") {
+        return `<div class="embed-block">
+  <div class="embed-bar">${serviceBadge("YouTube")}<a href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on YouTube ↗</a></div>
+  <a class="vid-thumb-card" href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" title="Watch on YouTube">
+    <img class="vid-thumb-img" src="${esc(vr.thumbUrl||"")}" alt="YouTube video thumbnail" loading="lazy" onerror="this.style.display='none'">
+    <div class="vid-thumb-overlay">
+      <div class="vid-play-btn"><svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div>
+    </div>
+  </a>
+</div>`;
       }
-      // Generic external video link
-      return `<div class="media-link-card"><span class="media-icon">▶</span><div class="media-info"><span class="media-label">Video</span><a href="${esc(block.videoUrl)}" target="_blank" rel="noopener" class="media-url">${esc(block.videoUrl)}</a></div></div>`;
+
+      // Vimeo — thumbnail card
+      if (vr.type === "vimeo-card") {
+        return `<div class="embed-block">
+  <div class="embed-bar">${serviceBadge("Vimeo")}<a href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on Vimeo ↗</a></div>
+  <a class="vid-thumb-card" href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" title="Watch on Vimeo">
+    <img class="vid-thumb-img" src="${esc(vr.thumbUrl||"")}" alt="Vimeo video thumbnail" loading="lazy" onerror="this.style.display='none'">
+    <div class="vid-thumb-overlay">
+      <div class="vid-play-btn" style="background:#1ab7ea"><svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div>
+    </div>
+  </a>
+</div>`;
+      }
+
+      // Loom / Wistia / generic card services — link card with brand badge
+      if (vr.type === "loom-card" || vr.type === "wistia-card" || vr.type === "generic-card") {
+        return `<a class="vid-link-card" href="${esc(vr.watchUrl)}" target="_blank" rel="noopener">
+  <div class="vlc-icon-wrap"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg></div>
+  <div class="media-info">
+    <span class="media-label">${esc(vr.label)}</span>
+    <span class="media-url">${esc(vr.watchUrl)}</span>
+  </div>
+  ${serviceBadge(vr.label)}
+  <span class="mlc-arrow">↗</span>
+</a>`;
+      }
+
+      // Native video file
+      if (vr.type === "native-video") {
+        return `<div class="embed-block">
+  <div class="embed-bar">${serviceBadge("Video")}<a href="${esc(block.videoUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a></div>
+  <video controls class="native-video" preload="metadata" style="display:block;width:100%"><source src="${esc(block.videoUrl)}"><p class="media-fallback">Your browser cannot play this video. <a href="${esc(block.videoUrl)}" download>Download</a></p></video>
+</div>`;
+      }
+
+      // Generic link fallback
+      return `<a class="media-link-card" href="${esc(block.videoUrl)}" target="_blank" rel="noopener">
+  <span class="media-icon">🎬</span>
+  <div class="media-info"><span class="media-label">Video</span><span class="media-url">${esc(block.videoUrl)}</span></div>
+  <span class="mlc-arrow">↗</span>
+</a>`;
     }
 
-    // ── Audio — local native player with hint / external streaming player ─────
+    // ── Audio — local / Spotify / SoundCloud / Apple Music / native <audio> ────
     case "audio": {
       if (!block.audioUrl) return "";
-      const local = isLocal(block.audioUrl);
-      const name = block.audioUrl.split("/").pop() || "Audio";
-      if (local) {
-        return `<div class="audio-card"><span class="media-icon">🎵</span><div class="audio-inner"><span class="audio-name">${esc(name)}</span><audio controls><source src="${esc(block.audioUrl)}"><span class="media-fallback">Cannot play audio.</span></audio><span class="file-note">📁 Local file — plays only on the original device</span></div></div>`;
+      const fname = decodeURIComponent(block.audioUrl.split("?")[0].split("/").pop() || "Audio");
+
+      // Local file
+      if (isLocal(block.audioUrl)) {
+        return `<div class="media-local-card">
+  <div class="mlc-icon">🎵</div>
+  <div class="mlc-body">
+    <div class="mlc-label">Local Audio</div>
+    <div class="mlc-name">${esc(fname)}</div>
+    <div class="mlc-hint">This audio file is stored on your device — it won't play in exported HTML.</div>
+  </div>
+</div>`;
       }
-      return `<div class="audio-card"><span class="media-icon">🎵</span><div class="audio-inner"><span class="audio-name">${esc(name)}</span><audio controls src="${esc(block.audioUrl)}"></audio></div></div>`;
+
+      const ar = resolveAudio(block.audioUrl);
+
+      // Spotify track / episode — compact 152px iframe
+      if (ar.type === "spotify-track") {
+        return `<div class="embed-block embed-block-audio">
+  <div class="embed-bar">${serviceBadge("Spotify")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open in Spotify ↗</a></div>
+  <iframe src="${esc(ar.src)}" width="100%" height="152" frameborder="0" allowtransparency="true" allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture" loading="lazy" style="display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
+</div>`;
+      }
+
+      // Spotify playlist / album / show — taller iframe
+      if (ar.type === "spotify-playlist") {
+        return `<div class="embed-block embed-block-audio">
+  <div class="embed-bar">${serviceBadge("Spotify")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open in Spotify ↗</a></div>
+  <iframe src="${esc(ar.src)}" width="100%" height="352" frameborder="0" allowtransparency="true" allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture" loading="lazy" style="display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
+</div>`;
+      }
+
+      // SoundCloud — waveform visual player
+      if (ar.type === "soundcloud") {
+        return `<div class="embed-block embed-block-audio">
+  <div class="embed-bar">${serviceBadge("SoundCloud")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open on SoundCloud ↗</a></div>
+  <iframe width="100%" height="166" scrolling="no" frameborder="no" allow="autoplay" src="${esc(ar.src)}" loading="lazy" style="display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
+</div>`;
+      }
+
+      // Apple Music / Podcasts
+      if (ar.type === "apple") {
+        return `<div class="embed-block embed-block-audio">
+  <div class="embed-bar">${serviceBadge("Apple Music")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open in Apple Music ↗</a></div>
+  <iframe allow="autoplay *; encrypted-media *; fullscreen *" frameborder="0" height="175" sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation" src="${esc(ar.src)}" loading="lazy" style="width:100%;display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
+</div>`;
+      }
+
+      // Native <audio> — for direct files AND any unknown external URL.
+      // The browser will try to fetch & play; if it can't (wrong MIME / CORS),
+      // the <a> fallback inside is shown automatically.
+      if (ar.type === "native") {
+        const srcTag = ar.mimeHint
+          ? `<source src="${esc(block.audioUrl)}" type="${esc(ar.mimeHint)}">`
+          : `<source src="${esc(block.audioUrl)}">`;
+        const displayName = fname !== "Audio" ? fname : (ar.label || "Audio");
+        return `<div class="audio-card">
+  <div class="audio-card-icon">🎵</div>
+  <div class="audio-inner">
+    <span class="audio-name">${esc(displayName)}</span>
+    <audio controls preload="metadata" class="audio-player">
+      ${srcTag}
+      <p class="media-fallback">Can't play this audio. <a href="${esc(block.audioUrl)}" target="_blank" rel="noopener">Open ↗</a></p>
+    </audio>
+  </div>
+</div>`;
+      }
+
+      // Known-incompatible streaming service — link card
+      return `<a class="media-link-card" href="${esc(block.audioUrl)}" target="_blank" rel="noopener">
+  <span class="media-icon">🎵</span>
+  <div class="media-info">
+    <span class="media-label">Audio — ${esc(ar.label||urlHost(block.audioUrl)||"")}</span>
+    <span class="media-url">${esc(block.audioUrl)}</span>
+  </div>
+  <span class="mlc-arrow">↗</span>
+</a>`;
     }
 
-    // ── File — download link with smart icon ──────────────────────────────────
+    // ── File — local badge / PDF iframe / GDoc / Office / CodePen / Figma / etc ─
     case "file": {
       if (!block.fileUrl) return "";
-      const local = isLocal(block.fileUrl);
       const name = block.fileName || block.fileUrl.split("/").pop() || "File";
       const icon = fileIcon(block.fileName || "", block.fileUrl);
-      const localBadge = local ? `<span class="local-badge">local</span>` : "";
-      return `<div class="file-card"><span class="file-icon-lg">${icon}</span><div class="file-info"><span class="file-name">${esc(name)}</span>${localBadge}${local ? `<span class="file-note">Local file — open from your device</span>` : `<a href="${esc(block.fileUrl)}" target="_blank" rel="noopener" class="file-link" download>Download ↗</a>`}</div></div>`;
+      const fr = resolveFile(block.fileUrl, name);
+
+      // Local file — can't display, show a clear card
+      if (fr.type === "local") {
+        return `<div class="media-local-card">
+  <div class="mlc-icon">${icon}</div>
+  <div class="mlc-body">
+    <div class="mlc-label">Local File <span class="local-badge">local</span></div>
+    <div class="mlc-name">${esc(name)}</div>
+    <div class="mlc-hint">This file is stored on your device and can't be previewed in the export.</div>
+  </div>
+</div>`;
+      }
+
+      // Embeddable (PDF, GDoc, GSheet, GSlide, Office, CodePen, Figma, etc.)
+      if (fr.iframeSrc) {
+        const isCode  = ["codepen","codesandbox","stackblitz","jsfiddle","replit"].includes(fr.type);
+        const isDesign = fr.type === "figma";
+        const iframeH = isCode ? "460px" : isDesign ? "500px" : fr.type === "gslide" ? "480px" : "520px";
+        return `<div class="embed-block">
+  <div class="embed-bar">
+    ${serviceBadge(fr.label)}
+    <span class="embed-filename">${esc(name)}</span>
+    <a href="${esc(block.fileUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a>
+  </div>
+  <div class="embed-frame-wrap" style="height:${iframeH}">
+    <iframe src="${esc(fr.iframeSrc)}" frameborder="0" allowfullscreen loading="lazy" title="${esc(fr.label)}" allow="fullscreen"></iframe>
+  </div>
+</div>`;
+      }
+
+      // Plain download link
+      return `<div class="file-card">
+  <div class="file-icon-lg">${icon}</div>
+  <div class="file-info">
+    <span class="file-name">${esc(name)}</span>
+    <a href="${esc(block.fileUrl)}" target="_blank" rel="noopener" class="file-link" download>Download ↗</a>
+  </div>
+</div>`;
     }
 
     // ── Bookmark ──────────────────────────────────────────────────────────────
@@ -581,10 +949,35 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       if (!block.bookmarkUrl) return "";
       return `<a class="bookmark-card" href="${esc(block.bookmarkUrl)}" target="_blank" rel="noopener"><div class="bm-body"><div class="bm-title">${renderInline(block.bookmarkTitle||block.bookmarkUrl)}</div>${block.bookmarkDescription?`<div class="bm-desc">${renderInline(block.bookmarkDescription)}</div>`:""}<div class="bm-url">${esc(block.bookmarkUrl)}</div></div><span class="bm-arrow">↗</span></a>`;
 
-    // ── Embed ─────────────────────────────────────────────────────────────────
-    case "embed":
-      return block.embedUrl
-        ? `<div class="media-link-card"><span class="media-icon">🔗</span><div class="media-info"><span class="media-label">Embed</span><a href="${esc(block.embedUrl)}" target="_blank" rel="noopener" class="media-url">${esc(block.embedUrl)}</a></div></div>` : "";
+    // ── Embed — CodePen / CodeSandbox / StackBlitz / Figma / GDoc / YT card / etc
+    case "embed": {
+      if (!block.embedUrl) return "";
+      const er = resolveEmbed(block.embedUrl);
+      if (er.type === "vid-card") {
+        // YouTube/Vimeo thumbnail card (same as video block)
+        return `<div class="embed-block">
+  <div class="embed-bar">${serviceBadge(er.label)}<a href="${esc(er.watchUrl||block.embedUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on ${esc(er.label)} ↗</a></div>
+  <a class="vid-thumb-card" href="${esc(er.watchUrl||block.embedUrl)}" target="_blank" rel="noopener">
+    ${er.thumbUrl?`<img class="vid-thumb-img" src="${esc(er.thumbUrl)}" alt="Video thumbnail" loading="lazy" onerror="this.style.display='none'">`:`<div class="vid-thumb-placeholder"></div>`}
+    <div class="vid-thumb-overlay"><div class="vid-play-btn"><svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div></div>
+  </a>
+</div>`;
+      }
+      if (er.type === "iframe") {
+        const h = er.tall ? "480px" : "360px";
+        return `<div class="embed-block">
+  <div class="embed-bar">${serviceBadge(er.label)}<a href="${esc(block.embedUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a></div>
+  <div class="embed-frame-wrap" style="height:${h}">
+    <iframe src="${esc(er.src)}" frameborder="0" allowfullscreen loading="lazy" title="${esc(er.label)}" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture;fullscreen"></iframe>
+  </div>
+</div>`;
+      }
+      return `<a class="media-link-card" href="${esc(block.embedUrl)}" target="_blank" rel="noopener">
+  <span class="media-icon">🔗</span>
+  <div class="media-info"><span class="media-label">Embed</span><span class="media-url">${esc(block.embedUrl)}</span></div>
+  <span class="mlc-arrow">↗</span>
+</a>`;
+    }
 
     // ── Equation — KaTeX rendered ─────────────────────────────────────────────
     case "equation":
@@ -1649,13 +2042,113 @@ code{font-family:var(--font-mono)}
 .file-note{font-size:.76rem;color:var(--ink4);font-style:italic}
 .local-badge{display:inline-block;font-size:.63rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--amber);background:var(--amber-l);border:1px solid var(--amber-m);border-radius:4px;padding:1px 6px;margin-left:6px}
 
-/* ── Media local hint ── */
-.media-local-card{display:flex;align-items:flex-start;gap:14px;padding:14px 18px;background:var(--amber-l);border:1px solid var(--amber-m);border-radius:var(--r14);margin:.7em 0}
-.media-local-hint{font-size:.75rem;color:var(--ink4);margin-top:8px;font-style:italic}
-.media-fallback{font-size:.81rem;color:var(--ink4);margin-top:6px;font-style:italic}
+/* ── Local media card — clear "not available" state ── */
+.media-local-card{
+  display:flex;align-items:flex-start;gap:16px;padding:16px 20px;
+  background:linear-gradient(135deg,#fffcf5,#fffaf0);
+  border:1px solid var(--amber-m);border-left:3px solid var(--amber);
+  border-radius:var(--r14);margin:.7em 0;
+}
+.mlc-icon{
+  font-size:1.5em;flex-shrink:0;width:44px;height:44px;border-radius:var(--r10);
+  background:var(--amber-l);border:1px solid var(--amber-m);
+  display:flex;align-items:center;justify-content:center;
+}
+.mlc-body{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.mlc-label{font-size:.71rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--amber)}
+.mlc-name{font-size:.88rem;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mlc-hint{font-size:.76rem;color:var(--ink4);font-style:italic;line-height:1.5}
+.mlc-arrow{font-size:.9em;color:var(--sage);flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--sage-l);border:1px solid var(--sage-m);display:flex;align-items:center;justify-content:center}
+
+/* ── Embed block — iframe container ── */
+.embed-block{
+  margin:.9em 0;border-radius:var(--r16);overflow:hidden;
+  border:1px solid var(--border2);box-shadow:var(--sh2);background:var(--surface);
+}
+.embed-bar{
+  display:flex;align-items:center;gap:8px;padding:9px 14px;
+  background:var(--surface2);border-bottom:1px solid var(--border2);
+  min-height:40px;
+}
+.embed-filename{
+  font-size:.78rem;color:var(--ink3);flex:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+.embed-ext-link{
+  margin-left:auto;font-size:.74rem;font-weight:700;color:var(--sage);
+  text-decoration:none;white-space:nowrap;flex-shrink:0;
+  background:var(--sage-l);border:1px solid var(--sage-m);
+  padding:3px 10px;border-radius:9999px;
+}
+.embed-ext-link:hover{background:var(--sage-m);text-decoration:none}
+.embed-ratio-16-9{position:relative;width:100%;padding-bottom:56.25%}
+.embed-ratio-16-9 iframe{position:absolute;inset:0;width:100%;height:100%;display:block}
+.embed-frame-wrap{width:100%;position:relative;overflow:hidden}
+.embed-frame-wrap iframe{width:100%;height:100%;display:block;border:none}
+.embed-block-audio{border-radius:var(--r14)}
+.embed-block-audio .embed-frame-wrap{border-radius:0 0 var(--r14) var(--r14);overflow:hidden}
+
+/* ── Service badge ── */
+.svc-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 10px;border-radius:9999px;
+  font-size:.69rem;font-weight:800;letter-spacing:.03em;
+  flex-shrink:0;line-height:1.4;
+}
+.svc-badge-default{background:var(--surface4);color:var(--ink3);border:1px solid var(--border)}
+
+/* ── Video thumbnail card (YouTube / Vimeo click-to-watch) ── */
+.vid-thumb-card{
+  display:block;position:relative;width:100%;aspect-ratio:16/9;
+  overflow:hidden;text-decoration:none;cursor:pointer;
+  background:#1a1a1a;
+}
+.vid-thumb-img{
+  width:100%;height:100%;object-fit:cover;display:block;
+  transition:transform .3s ease,filter .3s ease;
+  filter:brightness(.88);
+}
+.vid-thumb-card:hover .vid-thumb-img{transform:scale(1.025);filter:brightness(.72)}
+.vid-thumb-overlay{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.18);transition:background .2s;
+}
+.vid-thumb-card:hover .vid-thumb-overlay{background:rgba(0,0,0,.32)}
+.vid-play-btn{
+  width:60px;height:60px;border-radius:50%;
+  background:#ff0000;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 24px rgba(0,0,0,.45);
+  transition:transform .18s ease,box-shadow .18s ease;
+}
+.vid-thumb-card:hover .vid-play-btn{transform:scale(1.1);box-shadow:0 8px 32px rgba(0,0,0,.55)}
+.vid-play-btn svg{margin-left:3px}
+.vid-thumb-placeholder{width:100%;height:100%;background:linear-gradient(135deg,#2a2a2a,#1a1a1a)}
+
+/* ── Video link card (Loom / Wistia / generic) ── */
+.vid-link-card{
+  display:flex;align-items:center;gap:14px;padding:14px 18px;
+  background:var(--surface2);border:1px solid var(--border2);
+  border-radius:var(--r14);margin:.7em 0;box-shadow:var(--sh0);
+  text-decoration:none;color:inherit;transition:box-shadow .15s,transform .15s;
+}
+.vid-link-card:hover{box-shadow:var(--sh1);transform:translateY(-1px);text-decoration:none}
+.vlc-icon-wrap{
+  width:40px;height:40px;border-radius:var(--r10);flex-shrink:0;
+  background:linear-gradient(135deg,#2a2a2a,#1a1a1a);
+  color:#fff;display:flex;align-items:center;justify-content:center;
+}
+  display:flex;align-items:center;gap:14px;padding:14px 18px;
+  background:var(--surface2);border:1px solid var(--border2);
+  border-radius:var(--r14);margin:.7em 0;box-shadow:var(--sh0);
+  text-decoration:none;color:inherit;transition:box-shadow .15s,transform .15s;
+}
+.media-link-card:hover{box-shadow:var(--sh1);transform:translateY(-1px);text-decoration:none}
+
+/* ── Audio card (native file player) ── */
 .audio-inner{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
 .audio-name{font-size:.84rem;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.audio-inner audio{width:100%;height:34px}
+.media-fallback{font-size:.78rem;color:var(--ink4);margin-top:4px;font-style:italic}
 
 /* ── Bookmark ── */
 .bookmark-card{
@@ -1935,6 +2428,13 @@ tbody tr:hover td{background:var(--sage-l)}
   .page{max-width:100%;padding:0 0 20px}
   .doc-header{padding:20px 0 28px;margin-bottom:28px}
   .doc-header::before{display:none}
+  /* Embed iframes — show as link cards in print */
+  .embed-block{break-inside:avoid}
+  .embed-ratio-16-9,.embed-frame-wrap{display:none!important}
+  .embed-bar .embed-ext-link::after{content:" (open link to view)";font-style:italic;font-weight:400}
+  /* Video thumbnail — keep the image, hide overlay details */
+  .vid-thumb-card{aspect-ratio:16/9;max-height:220px}
+  .vid-thumb-overlay{display:none}
   .table-outer{overflow:visible;border:1px solid var(--border2);border-radius:4px}
   .table-scroll{overflow:visible}
   table{min-width:unset;width:100%}
