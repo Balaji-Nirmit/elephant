@@ -9,6 +9,7 @@ import SocialStatsSection from "@/components/landing/SocialStatsSection";
 import PricingSection from "@/components/landing/PricingSection";
 import Footer from "@/components/landing/Footer";
 import { authClient } from "@/lib/auth-client"
+import ComparisonDifferenceSection from "@/components/landing/ComparisonDifferenceSection";
 
 
 const SectionDivider = ({ variant = "green" }: { variant?: "green" | "yellow" | "peach" }) => {
@@ -58,6 +59,8 @@ const Index = () => {
       <GoLiveSection />
       <SectionDivider variant="peach" />
       <BenchmarkSection />
+      <SectionDivider variant="green" />
+      <ComparisonDifferenceSection signinwithgoogle={signinwithgoogle} />
       <SectionDivider variant="green" />
       <SocialStatsSection />
       <SectionDivider variant="peach" />

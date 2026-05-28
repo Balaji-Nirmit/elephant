@@ -1,6 +1,7 @@
-import { FileText, Twitter, Github, Linkedin, ArrowRight, ArrowUpRight, Heart, Sparkles, Mail, MapPin } from "lucide-react";
+import { FileText, Twitter, Github, Linkedin, ArrowRight, Heart, Sparkles, Mail, Youtube, Instagram } from "lucide-react";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { useRef } from "react";
+import Link from "next/link";
 
 const SpiralSVG = ({ className }: { className?: string }) => (
     <svg className={className} viewBox="0 0 200 200" fill="none">
@@ -10,11 +11,12 @@ const SpiralSVG = ({ className }: { className?: string }) => (
     </svg>
 );
 
-const footerLinks = {
-    Product: ["Blocks", "Mind Maps", "Templates", "Local-First", "Changelog"],
-    Resources: ["Documentation", "Blog", "Privacy Guide", "Support", "API"],
-    Company: ["About", "Careers", "Security", "Terms", "Contact"],
-};
+const footerLinks = [
+    { label: "Documentation", href: "/docs" },
+    { label: "About", href: "/about" },
+    { label: "Privacy Policy", href: "/privacy" },
+    { label: "Terms of Service", href: "/terms" },
+];
 
 const Footer = ({ signinwithgoogle }: { signinwithgoogle: () => {} }) => {
     const ref = useRef<HTMLElement>(null);
@@ -95,84 +97,76 @@ const Footer = ({ signinwithgoogle }: { signinwithgoogle: () => {} }) => {
                         </div>
                     </motion.div>
 
-                    {/* Links grid */}
-                    <div className="grid gap-8 sm:grid-cols-2 md:grid-cols-5">
-                        <div className="md:col-span-2">
-                            <motion.div
-                                initial={{ opacity: 0, x: -20 }}
-                                whileInView={{ opacity: 1, x: 0 }}
-                                viewport={{ once: true }}
-                                className="flex items-center gap-2.5"
-                            >
+                    {/* Brand and Info */}
+                    <div className="grid gap-12 md:grid-cols-2 items-start mb-12">
+                        <motion.div
+                            initial={{ opacity: 0, x: -20 }}
+                            whileInView={{ opacity: 1, x: 0 }}
+                            viewport={{ once: true }}
+                        >
+                            <div className="flex items-center gap-2.5 mb-4">
                                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-accent to-accent/70 shadow-lg">
                                     <FileText className="h-5 w-5 text-accent-foreground" />
                                 </div>
                                 <span className="text-lg font-bold text-white">Ploopus</span>
-                            </motion.div>
-                            <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/40">
+                            </div>
+                            <p className="max-w-xs text-sm leading-relaxed text-white/40">
                                 The professional local-first workspace. 50+ formatting blocks and 30+ templates designed for speed, privacy, and creative freedom.
                             </p>
 
-                            <div className="mt-5 space-y-2">
-                                {[
-                                    { icon: Mail, text: "hello@Ploopus.app" },
-                                    { icon: MapPin, text: "Privacy-first Infrastructure" },
-                                ].map(({ icon: Icon, text }) => (
-                                    <div key={text} className="flex items-center gap-2 text-xs text-white/50">
-                                        <Icon className="h-3.5 w-3.5" />
-                                        <span>{text}</span>
-                                    </div>
-                                ))}
+                            <div className="mt-6 space-y-2">
+                                <div className="flex items-center gap-2 text-xs text-white/50">
+                                    <Mail className="h-3.5 w-3.5" />
+                                    <a href="mailto:cursorbits@gmail.com" className="hover:text-accent transition-colors">cursorbits@gmail.com</a>
+                                </div>
                             </div>
 
-                            <div className="mt-5 flex items-center gap-2">
+                            <div className="mt-6 flex items-center gap-2">
                                 {[
-                                    { icon: Twitter, label: "Twitter" },
-                                    { icon: Github, label: "GitHub" },
-                                    { icon: Linkedin, label: "LinkedIn" },
-                                ].map(({ icon: Icon, label }, i) => (
+                                    { icon: Twitter, label: "X", url: 'https://x.com/CursorBits' },
+                                    { icon: Youtube, label: "Youtube", url: 'https://www.youtube.com/@CursorBits' },
+                                    { icon: Instagram, label: "Instagram", url: 'https://instagram.com/cursorbits' },
+                                ].map(({ icon: Icon, label, url }, i) => (
                                     <motion.a
                                         key={label}
-                                        href="#"
+                                        href={url}
                                         aria-label={label}
                                         initial={{ opacity: 0, y: 10 }}
                                         whileInView={{ opacity: 1, y: 0 }}
                                         viewport={{ once: true }}
                                         transition={{ delay: i * 0.1 }}
                                         whileHover={{ scale: 1.15, y: -2 }}
+                                        target="_blank"
                                         className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/8 text-white/40 transition-all duration-300 hover:bg-accent hover:text-accent-foreground hover:shadow-lg"
                                     >
                                         <Icon className="h-4 w-4" />
                                     </motion.a>
                                 ))}
                             </div>
-                        </div>
+                        </motion.div>
 
-                        {Object.entries(footerLinks).map(([title, links], ci) => (
-                            <motion.div
-                                key={title}
-                                initial={{ opacity: 0, y: 20 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                viewport={{ once: true }}
-                                transition={{ delay: 0.1 + ci * 0.1 }}
-                            >
-                                <h4 className="text-xs font-bold uppercase tracking-widest text-white/60">{title}</h4>
-                                <ul className="mt-4 space-y-2.5">
-                                    {links.map((link) => (
-                                        <li key={link}>
-                                            <motion.a
-                                                href="#"
-                                                whileHover={{ x: 4 }}
-                                                className="group inline-flex items-center gap-1 text-sm text-white/50 transition-colors duration-200 hover:text-accent"
-                                            >
-                                                {link}
-                                                <ArrowUpRight className="h-3 w-3 opacity-0 transition-all duration-200 group-hover:opacity-100" />
-                                            </motion.a>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </motion.div>
-                        ))}
+                        {/* Quick Links */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true }}
+                            transition={{ delay: 0.1 }}
+                            className="md:text-right"
+                        >
+                            <h4 className="text-xs font-bold uppercase tracking-widest text-white/60 mb-4">Quick Links</h4>
+                            <ul className="space-y-2">
+                                {footerLinks.map((link) => (
+                                    <li key={link.label}>
+                                        <Link
+                                            href={link.href}
+                                            className="text-sm text-white/50 transition-colors duration-200 hover:text-accent"
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        </motion.div>
                     </div>
 
                     {/* Bottom bar */}
@@ -181,24 +175,15 @@ const Footer = ({ signinwithgoogle }: { signinwithgoogle: () => {} }) => {
                         whileInView={{ opacity: 1 }}
                         viewport={{ once: true }}
                         transition={{ delay: 0.3 }}
-                        className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/8 pt-8 sm:mt-16 md:flex-row"
+                        className="mt-12 border-t border-white/8 pt-8 sm:mt-16"
                     >
-                        <div className="flex items-center gap-1.5 text-xs text-white/50">
-                            <span>© 2026 Ploopus. Built for</span>
-                            <Heart className="h-3 w-3 fill-destructive/60 text-destructive/60" />
-                            <span>digital sovereignty</span>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
-                            {["Privacy Policy", "Terms of Service", "Local-First Manifesto", "Status"].map((item) => (
-                                <motion.a
-                                    key={item}
-                                    href="#"
-                                    whileHover={{ y: -1 }}
-                                    className="text-xs text-white/50 transition-colors duration-200 hover:text-accent"
-                                >
-                                    {item}
-                                </motion.a>
-                            ))}
+                        <div className="flex flex-col items-center justify-center gap-2 text-xs text-white/50">
+                            <div className="flex items-center gap-1.5">
+                                <span>© 2026 Ploopus. Built for</span>
+                                <Heart className="h-3 w-3 fill-destructive/60 text-destructive/60" />
+                                <span>digital sovereignty</span>
+                            </div>
+                            <p className="text-white/40">Think freely. Store locally. Create endlessly.</p>
                         </div>
                     </motion.div>
                 </motion.div>
