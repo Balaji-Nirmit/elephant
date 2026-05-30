@@ -53,6 +53,8 @@ import {
   Footprints,
   Grid2x2,
   LayoutTemplate,
+  Info,
+  Maximize2,
 } from "lucide-react";
 import { NoteBlock, FlashcardItem } from "@/lib/types";
 import ImageLightbox from "./ImageLightbox";
@@ -78,6 +80,8 @@ import PersistentVideo from "./PersistentVideo";
 import PersistentAudio from "./PersistentAudio";
 import { useIsTouchDevice } from "@/hooks/useIsTouchDevice";
 import MobileEditorToolbar from "./MobileEditorToolbar";
+import EmbedBlock from "./EmbedBlock";
+import EmbedBlockInfo from "./EmbedBlockInfo";
 
 interface NotionEditorProps {
   blocks: NoteBlock[];
@@ -1029,9 +1033,215 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
       if (vimeoMatch) {
         return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
       }
+      // Loom
+      const loomMatch = url.match(/loom\.com\/share\/([a-zA-Z0-9]+)/);
+      if (loomMatch) {
+        return `https://www.loom.com/embed/${loomMatch[1]}`;
+      }
+      // Dailymotion
+      const dailymotionMatch = url.match(/dailymotion\.com\/video\/([a-zA-Z0-9]+)/);
+      if (dailymotionMatch) {
+        return `https://www.dailymotion.com/embed/video/${dailymotionMatch[1]}`;
+      }
+      // Twitch
+      const twitchMatch = url.match(/twitch\.tv\/videos\/(\d+)/);
+      if (twitchMatch) {
+        return `https://player.twitch.tv/?video=${twitchMatch[1]}&parent=${window.location.hostname}`;
+      }
+      // Facebook - WIP
+      const facebookMatch = url.match(/facebook\.com\/.*\/videos\/(\d+)/);
+      if (facebookMatch) {
+        return `https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Ffacebook%2Fvideos%2F${facebookMatch[1]}&show_text=0&width=560`;
+      }
+      // Twitter - WIP
+      const twitterMatch = url.match(/twitter\.com\/.*\/status\/(\d+)/);
+      if (twitterMatch) {
+        return `https://twitframe.com/show?url=https%3A%2F%2Ftwitter.com%2Ftwitter%2Fstatus%2F${twitterMatch[1]}`;
+      }
+      // Instagram - WIP
+      const instagramMatch = url.match(/instagram\.com\/p\/([\w-]+)/);
+      if (instagramMatch) {
+        return `https://www.instagram.com/p/${instagramMatch[1]}/embed`;
+      }
+      // TikTok - WIP
+      const tiktokMatch = url.match(/tiktok\.com\/.*\/video\/(\d+)/);
+      if (tiktokMatch) {
+        return `https://www.tiktok.com/embed/v2/${tiktokMatch[1]}`;
+      }
+      // LinkedIn - WIP
+      const linkedInMatch = url.match(/linkedin\.com\/.*\/video\/(\d+)/);
+      if (linkedInMatch) {
+        return `https://www.linkedin.com/embed/feed/video/${linkedInMatch[1]}`;
+      }
     }
     return null;
   };
+
+  const getAudioEmbedUrl = (url: string) => {
+    if (!url) return null;
+    if (url.startsWith('http') || url.startsWith('blob:')) {
+      // SoundCloud - WIP
+      const soundCloudMatch = url.match(/soundcloud\.com\/([\w-]+\/[\w-]+)/);
+      if (soundCloudMatch) {
+        return `https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/${soundCloudMatch[1]}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true`;
+      }
+      // Spotify
+      const spotifyMatch = url.match(/open\.spotify\.com\/track\/([a-zA-Z0-9]+)/);
+      if (spotifyMatch) {
+        return `https://open.spotify.com/embed/track/${spotifyMatch[1]}`;
+      }
+      // Apple Music - WIP
+      const appleMusicMatch = url.match(/music\.apple\.com\/[\w-]+\/album\/[\w-]+\/([\w-]+)/);
+      if (appleMusicMatch) {
+        return `https://embed.music.apple.com/us/album/${appleMusicMatch[1]}`;
+      }
+      // Bandcamp - WIP
+      const bandcampMatch = url.match(/([\w-]+)\.bandcamp\.com\/track\/([\w-]+)/);
+      if (bandcampMatch) {
+        return `https://${bandcampMatch[1]}.bandcamp.com/track/${bandcampMatch[2]}/embed`;
+      }
+      //  YouTube Music
+      const youtubeMusicMatch = url.match(/music\.youtube\.com\/watch\?v=([\w-]+)/);
+      if (youtubeMusicMatch) {
+        return `https://www.youtube.com/embed/${youtubeMusicMatch[1]}`;
+      }
+      // Amazon Music - WIP
+      const amazonMusicMatch = url.match(/amazon\.com\/.*\/dp\/([\w-]+)/);
+      if (amazonMusicMatch) {
+        return `https://music.amazon.com/embed/${amazonMusicMatch[1]}`;
+      }
+      // Deezer - WIP
+      const deezerMatch = url.match(/deezer\.com\/track\/(\d+)/);
+      if (deezerMatch) {
+        return `https://www.deezer.com/plugins/player?format=square&autoplay=false&playlist=false&width=300&height=300&color=ff0000&layout=dark&size=medium&type=tracks&id=${deezerMatch[1]}&app_id=1`;
+      }
+      // Tidal - WIP
+      const tidalMatch = url.match(/tidal\.com\/browse\/track\/(\d+)/);
+      if (tidalMatch) {
+        return `https://embed.tidal.com/tracks/${tidalMatch[1]}?autoplay=false`;
+      }
+    }
+    return null;
+  }
+
+  const getEmbedUrl = (url: string) => {
+    /* this block is to embed any thing, webpages, urls, youtube, vimeo, loom, dailymotion, twitch, facebook, twitter, instagram, tiktok, linkedIn, soundcloud, spotify, apple music, bandcamp, youtube music, amazon music, deezer, tidal, codepen, jsfiddle, codesandbox, replit, glitch, figma, miro, mural, whimsical, canva, google docs, google sheets, google slides, notion, etc */
+    if (!url) return null;
+    if (url.startsWith('http') || url.startsWith('blob:')) {
+      const videoUrl = getVideoEmbedUrl(url);
+      if (videoUrl) return videoUrl;
+      const audioUrl = getAudioEmbedUrl(url);
+      if (audioUrl) return audioUrl;
+      // Codepen
+      const codepenMatch = url.match(/codepen\.io\/([\w-]+)\/pen\/([\w-]+)/);
+      if (codepenMatch) {
+        return `https://codepen.io/${codepenMatch[1]}/embed/${codepenMatch[2]}?default-tab=result`;
+      }
+      // JSFiddle
+      const jsFiddleMatch = url.match(/jsfiddle\.net\/([\w-]+)\/([\w-]+)/);
+      if (jsFiddleMatch) {
+        return `https://jsfiddle.net/${jsFiddleMatch[1]}/${jsFiddleMatch[2]}/embedded/result/`;
+      }
+      // CodeSandbox
+      const codeSandboxMatch = url.match(/codesandbox\.io\/(?:s|p\/devbox|p\/sandbox)\/([a-zA-Z0-9_-]+)/);
+      if (codeSandboxMatch) {
+        const id = codeSandboxMatch[1];
+
+        // If it was a modern devbox link, map it to the /p/devbox/ embed path
+        if (url.includes('/p/')) {
+          return `https://codesandbox.io/p/devbox/${id}?embed=1`;
+        }
+
+        // Fallback to legacy sandbox embed path
+        return `https://codesandbox.io/embed/${id}?fontsize=14&hidenavigation=1&theme=dark`;
+      }
+      // Replit - WIP
+      const replitMatch = url.match(/replit\.com\/(?:@)?([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/);
+      if (replitMatch) {
+        const username = replitMatch[1].toLowerCase();
+        const replName = replitMatch[2].toLowerCase();
+
+        // Maps directly to Replit's public application staging network which permits iframes
+        return `https://${replName}.${username}.replit.app`;
+      }
+      // Glitch - WIP
+      const glitchMatch = url.match(/glitch\.com\/edit\/([\w-]+)/);
+      if (glitchMatch) {
+        return `https://glitch.com/embed/${glitchMatch[1]}?previewSize=100`;
+      }
+      // Figma
+      const figmaMatch = url.match(/figma\.com\/(file|board)\/([a-zA-Z0-9_-]+)/);
+      if (figmaMatch) {
+        const type = figmaMatch[1]; // 'file' or 'board'
+        const id = figmaMatch[2];
+
+        // Extract node-id if present in the user's pasted URL
+        const urlObj = new URL(url);
+        const nodeId = urlObj.searchParams.get('node-id');
+        const nodeIdParam = nodeId ? `&node-id=${encodeURIComponent(nodeId)}` : '';
+
+        return `https://embed.figma.com/${type}/${id}/?embed-host=share${nodeIdParam}`;
+      }
+      // Miro
+      const miroMatch = url.match(/miro\.com\/app\/board\/([a-zA-Z0-9_=-]+)/);
+      if (miroMatch) {
+        return `https://miro.com/app/live-embed/${miroMatch[1]}/?embedMode=view_only_without_ui`;
+      }
+      // Mural - WIP
+      const muralMatch = url.match(/mural\.co\/t\/([\w-]+)/);
+      if (muralMatch) {
+        return `https://app.mural.co/t/${muralMatch[1]}/embed`;
+      }
+      // Whimsical - WIP
+      const whimsicalMatch = url.match(/whimsical\.com\/([\w-]+)/);
+      if (whimsicalMatch) {
+        return `https://whimsical.com/embeds/${whimsicalMatch[1]}`;
+      }
+      // Canva
+      const canvaMatch = url.match(/canva\.com\/design\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/);
+      if (canvaMatch) {
+        const designId = canvaMatch[1];
+        const viewId = canvaMatch[2];
+        return `https://www.canva.com/design/${designId}/${viewId}/watch?embed`;
+      }
+      // Google Docs
+      const googleDocsMatch = url.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
+      if (googleDocsMatch) {
+        return `https://docs.google.com/document/d/${googleDocsMatch[1]}/preview`;
+      }
+      // Google Sheets
+      const googleSheetsMatch = url.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+      if (googleSheetsMatch) {
+        try {
+          const sheetId = googleSheetsMatch[1];
+          const urlObj = new URL(url);
+
+          // Check both standard query parameters (?gid=) and hash fragments (#gid=)
+          let gid = urlObj.searchParams.get('gid');
+          if (!gid && urlObj.hash) {
+            const hashParams = new URLSearchParams(urlObj.hash.replace('#', ''));
+            gid = hashParams.get('gid');
+          }
+
+          const gidParam = gid ? `?gid=${gid}` : '';
+          return `https://docs.google.com/spreadsheets/d/${sheetId}/preview${gidParam}`;
+        } catch (e) {
+          // Fallback if URL parsing fails
+          return `https://docs.google.com/spreadsheets/d/${googleSheetsMatch[1]}/preview`;
+        }
+      }
+      // Google Slides
+      const googleSlidesMatch = url.match(/docs\.google\.com\/presentation\/d\/([\w-]+)/);
+      if (googleSlidesMatch) {
+        return `https://docs.google.com/presentation/d/${googleSlidesMatch[1]}/embed?start=false&loop=false&delayms=3000`;
+      }
+      // Notion - WIP
+      const notionMatch = url.match(/notion\.so\/([\w-]+)\/([\w-]+)/);
+      if (notionMatch) {
+        return `https://www.notion.so/${notionMatch[1]}/${notionMatch[2]}?embed=true`;
+      }
+    }
+  }
 
   const getBlockStyle = (type: NoteBlock["type"]) => {
     switch (type) {
@@ -1598,16 +1808,16 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
         );
 
       case "video":
-        const embedUrl = getVideoEmbedUrl(block.videoUrl || '');
+        const videoEmbedUrl = getVideoEmbedUrl(block.videoUrl || '');
 
         return (
           <div className="py-2">
             {block.videoUrl ? (
               <div className="relative rounded-4xl overflow-hidden aspect-video bg-black shadow-2xl border border-border/50 group">
-                {embedUrl ? (
+                {videoEmbedUrl ? (
                   /* External YouTube/Vimeo */
                   <iframe
-                    src={embedUrl}
+                    src={videoEmbedUrl}
                     className="w-full h-full border-none"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
@@ -1630,6 +1840,7 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
             ) : (
               /* Empty Uploader State */
               <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
+                <EmbedBlockInfo type='video' />
                 <Play className="w-12 h-12 mx-auto text-muted-foreground/20 mb-6" />
                 <MediaUploader
                   placeholder="Paste YouTube/Vimeo link or upload..."
@@ -1981,36 +2192,61 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
         );
 
       case "audio":
+        const audioEmbedUrl = getAudioEmbedUrl(block.audioUrl || '')
         return (
           <div className="py-2">
             {block.audioUrl ? (
               /* Minimalist "Single Row" Player */
-              <div className="group relative flex items-center gap-4 p-3 bg-secondary/30 backdrop-blur-md rounded-[1.5rem] border border-border/40 transition-all duration-300 hover:border-primary/20">
+              <div>
+                {audioEmbedUrl ? (
+                  /* External Spotify/apple music */
+                  <div className="group relative w-full rounded-[1.25rem]">
+                    {/* Mid-Thick Audio Wrapper */}
+                    <div className="relative w-full overflow-hidden rounded-xl">
+                      <iframe
+                        src={audioEmbedUrl}
+                        className="w-full h-38"
+                        loading="lazy"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      />
+                    </div>
 
-                {/* 1. Icon */}
-                <div className="shrink-0 w-10 h-10 bg-card rounded-xl border border-border/50 flex items-center justify-center shadow-sm">
-                  <Music className="w-5 h-5 text-primary/70" />
-                </div>
-
-                {/* 2. Player - Fills the middle space */}
-                <div className="flex-1 min-w-0">
-                  <PersistentAudio
-                    src={block.audioUrl}
-                    className="w-full h-8 opacity-80 hover:opacity-100 transition-opacity"
-                  />
-                </div>
-
-                {/* 3. Remove Button */}
-                <button
-                  onClick={() => updateBlock(block.id, { audioUrl: undefined })}
-                  className="shrink-0 p-2 text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 rounded-full transition-all active:scale-90"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                    {/* Floating Delete Action */}
+                    <button
+                      onClick={() => updateBlock(block.id, { audioUrl: undefined })}
+                      className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      aria-label="Delete block"
+                    >
+                      <X className="w-4 h-4 transition-transform duration-300 group-hover:rotate-90" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="group relative flex items-center gap-4 p-3 bg-secondary/30 backdrop-blur-md rounded-[1.5rem] border border-border/40 transition-all duration-300 hover:border-primary/20">
+                    {/* 1. Icon */}
+                    <div className="shrink-0 w-10 h-10 bg-card rounded-xl border border-border/50 flex items-center justify-center shadow-sm">
+                      <Music className="w-5 h-5 text-primary/70" />
+                    </div>
+                    {/* 2. Player - Fills the middle space */}
+                    <div className="flex-1 min-w-0">
+                      <PersistentAudio
+                        src={block.audioUrl}
+                        className="w-full h-8 opacity-80 hover:opacity-100 transition-opacity"
+                      />
+                    </div>
+                    {/* 3. Remove Button */}
+                    <button
+                      onClick={() => updateBlock(block.id, { audioUrl: undefined })}
+                      className="shrink-0 p-2 text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 rounded-full transition-all active:scale-90"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               /* Standard Empty State */
               <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
+                <EmbedBlockInfo type="audio" />
                 <Music className="w-10 h-10 mx-auto text-muted-foreground/20 mb-3" />
                 <MediaUploader
                   placeholder="Audio URL or upload..."
@@ -2162,44 +2398,11 @@ const NotionEditor = ({ blocks, onChange }: NotionEditorProps) => {
           </div>
         );
 
-      case "embed":
+      case "embed": {
         return (
-          <div className="py-2">
-            {block.embedUrl ? (
-              <div className="rounded-lg overflow-hidden border border-border">
-                <iframe
-                  src={block.embedUrl}
-                  className="w-full h-100"
-                  sandbox="allow-scripts allow-same-origin"
-                />
-                <div className="flex items-center justify-between p-2 bg-muted/30 text-xs">
-                  <span className="truncate text-muted-foreground">{block.embedUrl}</span>
-                  <button
-                    onClick={() => updateBlock(block.id, { embedUrl: undefined })}
-                    className="text-destructive hover:underline"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
-                <Globe className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground mb-3">Embed external content</p>
-                <input
-                  type="text"
-                  placeholder="Paste embed URL (Figma, CodePen, etc.)..."
-                  className="w-full max-w-md mx-auto px-4 py-2 bg-muted/50 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      updateBlock(block.id, { embedUrl: (e.target as HTMLInputElement).value });
-                    }
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        );
+          <EmbedBlock block={block} updateBlock={updateBlock} getEmbedUrl={getEmbedUrl} />
+        )
+      }
 
       case "mindmap":
         return (
