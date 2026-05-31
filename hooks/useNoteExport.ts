@@ -363,7 +363,177 @@ const resolveFile = (url = "", name = ""): FileResult => {
   return { type: "download", label: name || url.split("/").pop() || "File" };
 };
 
-// ── Embed resolver (for dedicated embed blocks) ────────────────────────────────
+// ─── getVideoEmbedUrl / getAudioEmbedUrl / getEmbedUrl ───────────────────────
+// These are the authoritative embed URL builders used for HTML export iframes.
+// They match the runtime player component exactly.
+
+const getVideoEmbedUrl = (url: string): string | null => {
+  if (!url) return null;
+  if (url.startsWith("http") || url.startsWith("blob:")) {
+    const youtubeMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
+    if (youtubeMatch) return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+    const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
+    if (vimeoMatch) return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+    const loomMatch = url.match(/loom\.com\/share\/([a-zA-Z0-9]+)/);
+    if (loomMatch) return `https://www.loom.com/embed/${loomMatch[1]}`;
+    const dailymotionMatch = url.match(/dailymotion\.com\/video\/([a-zA-Z0-9]+)/);
+    if (dailymotionMatch) return `https://www.dailymotion.com/embed/video/${dailymotionMatch[1]}`;
+    const twitchMatch = url.match(/twitch\.tv\/videos\/(\d+)/);
+    if (twitchMatch) return `https://player.twitch.tv/?video=${twitchMatch[1]}&parent=localhost`;
+    const facebookMatch = url.match(/facebook\.com\/.*\/videos\/(\d+)/);
+    if (facebookMatch) return `https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Ffacebook%2Fvideos%2F${facebookMatch[1]}&show_text=0&width=560`;
+    const twitterMatch = url.match(/twitter\.com\/.*\/status\/(\d+)/);
+    if (twitterMatch) return `https://twitframe.com/show?url=https%3A%2F%2Ftwitter.com%2Ftwitter%2Fstatus%2F${twitterMatch[1]}`;
+    const instagramMatch = url.match(/instagram\.com\/p\/([\w-]+)/);
+    if (instagramMatch) return `https://www.instagram.com/p/${instagramMatch[1]}/embed`;
+    const tiktokMatch = url.match(/tiktok\.com\/.*\/video\/(\d+)/);
+    if (tiktokMatch) return `https://www.tiktok.com/embed/v2/${tiktokMatch[1]}`;
+    const linkedInMatch = url.match(/linkedin\.com\/.*\/video\/(\d+)/);
+    if (linkedInMatch) return `https://www.linkedin.com/embed/feed/video/${linkedInMatch[1]}`;
+  }
+  return null;
+};
+
+const getAudioEmbedUrl = (url: string): string | null => {
+  if (!url) return null;
+  if (url.startsWith("http") || url.startsWith("blob:")) {
+    const soundCloudMatch = url.match(/soundcloud\.com\/([\w-]+\/[\w-]+)/);
+    if (soundCloudMatch) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true`;
+    const spotifyTrackMatch = url.match(/open\.spotify\.com\/(track|episode)\/([a-zA-Z0-9]+)/);
+    if (spotifyTrackMatch) return `https://open.spotify.com/embed/${spotifyTrackMatch[1]}/${spotifyTrackMatch[2]}?utm_source=generator`;
+    const spotifyOtherMatch = url.match(/open\.spotify\.com\/(playlist|album|show|artist)\/([a-zA-Z0-9]+)/);
+    if (spotifyOtherMatch) return `https://open.spotify.com/embed/${spotifyOtherMatch[1]}/${spotifyOtherMatch[2]}?utm_source=generator`;
+    if (/music\.apple\.com|podcasts\.apple\.com/.test(url)) {
+      return url.replace("music.apple.com", "embed.music.apple.com").replace("podcasts.apple.com", "embed.podcasts.apple.com");
+    }
+    const youtubeMusicMatch = url.match(/music\.youtube\.com\/watch\?v=([\w-]+)/);
+    if (youtubeMusicMatch) return `https://www.youtube.com/embed/${youtubeMusicMatch[1]}`;
+    const deezerMatch = url.match(/deezer\.com\/track\/(\d+)/);
+    if (deezerMatch) return `https://www.deezer.com/plugins/player?format=square&autoplay=false&playlist=false&width=300&height=300&color=ff0000&layout=dark&size=medium&type=tracks&id=${deezerMatch[1]}&app_id=1`;
+    const tidalMatch = url.match(/tidal\.com\/browse\/track\/(\d+)/);
+    if (tidalMatch) return `https://embed.tidal.com/tracks/${tidalMatch[1]}?autoplay=false`;
+  }
+  return null;
+};
+
+const getEmbedUrl = (url: string): string | null => {
+  if (!url) return null;
+  if (url.startsWith("http") || url.startsWith("blob:")) {
+    const videoUrl = getVideoEmbedUrl(url);
+    if (videoUrl) return videoUrl;
+    const audioUrl = getAudioEmbedUrl(url);
+    if (audioUrl) return audioUrl;
+    const codepenMatch = url.match(/codepen\.io\/([\w-]+)\/pen\/([\w-]+)/);
+    if (codepenMatch) return `https://codepen.io/${codepenMatch[1]}/embed/${codepenMatch[2]}?default-tab=result`;
+    const jsFiddleMatch = url.match(/jsfiddle\.net\/([\w-]+)\/([\w-]+)/);
+    if (jsFiddleMatch) return `https://jsfiddle.net/${jsFiddleMatch[1]}/${jsFiddleMatch[2]}/embedded/result/`;
+    const codeSandboxMatch = url.match(/codesandbox\.io\/(?:s|p\/devbox|p\/sandbox)\/([a-zA-Z0-9_-]+)/);
+    if (codeSandboxMatch) {
+      const id = codeSandboxMatch[1];
+      return url.includes("/p/")
+        ? `https://codesandbox.io/p/devbox/${id}?embed=1`
+        : `https://codesandbox.io/embed/${id}?fontsize=14&hidenavigation=1&theme=dark`;
+    }
+    const stackblitzMatch = url.match(/stackblitz\.com\/(?:edit|github)\/([a-zA-Z0-9_/-]+)/);
+    if (stackblitzMatch) return `https://stackblitz.com/edit/${stackblitzMatch[1]}?embed=1&view=preview`;
+    const replitMatch = url.match(/replit\.com\/(?:@)?([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/);
+    if (replitMatch) return `https://${replitMatch[2].toLowerCase()}.${replitMatch[1].toLowerCase()}.repl.co`;
+    const glitchMatch = url.match(/glitch\.com\/edit\/([\w-]+)/);
+    if (glitchMatch) return `https://glitch.com/embed/${glitchMatch[1]}?previewSize=100`;
+    const figmaMatch = url.match(/figma\.com\/(file|board)\/([a-zA-Z0-9_-]+)/);
+    if (figmaMatch) {
+      try {
+        const urlObj = new URL(url);
+        const nodeId = urlObj.searchParams.get("node-id");
+        const nodeIdParam = nodeId ? `&node-id=${encodeURIComponent(nodeId)}` : "";
+        return `https://embed.figma.com/${figmaMatch[1]}/${figmaMatch[2]}/?embed-host=share${nodeIdParam}`;
+      } catch { return `https://embed.figma.com/${figmaMatch[1]}/${figmaMatch[2]}/?embed-host=share`; }
+    }
+    const miroMatch = url.match(/miro\.com\/app\/board\/([a-zA-Z0-9_=-]+)/);
+    if (miroMatch) return `https://miro.com/app/live-embed/${miroMatch[1]}/?embedMode=view_only_without_ui`;
+    const muralMatch = url.match(/mural\.co\/t\/([\w-]+)/);
+    if (muralMatch) return `https://app.mural.co/t/${muralMatch[1]}/embed`;
+    const whimsicalMatch = url.match(/whimsical\.com\/([\w-]+)/);
+    if (whimsicalMatch) return `https://whimsical.com/embeds/${whimsicalMatch[1]}`;
+    const canvaMatch = url.match(/canva\.com\/design\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/);
+    if (canvaMatch) return `https://www.canva.com/design/${canvaMatch[1]}/${canvaMatch[2]}/watch?embed`;
+    const googleDocsMatch = url.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
+    if (googleDocsMatch) return `https://docs.google.com/document/d/${googleDocsMatch[1]}/preview`;
+    const googleSheetsMatch = url.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (googleSheetsMatch) {
+      try {
+        const sheetId = googleSheetsMatch[1];
+        const urlObj = new URL(url);
+        let gid = urlObj.searchParams.get("gid");
+        if (!gid && urlObj.hash) { const hp = new URLSearchParams(urlObj.hash.replace("#", "")); gid = hp.get("gid"); }
+        return `https://docs.google.com/spreadsheets/d/${sheetId}/preview${gid ? `?gid=${gid}` : ""}`;
+      } catch { return `https://docs.google.com/spreadsheets/d/${googleSheetsMatch[1]}/preview`; }
+    }
+    const googleSlidesMatch = url.match(/docs\.google\.com\/presentation\/d\/([\w-]+)/);
+    if (googleSlidesMatch) return `https://docs.google.com/presentation/d/${googleSlidesMatch[1]}/embed?start=false&loop=false&delayms=3000`;
+    const notionMatch = url.match(/notion\.so\/([\w-]+)\/([\w-]+)/);
+    if (notionMatch) return `https://www.notion.so/${notionMatch[1]}/${notionMatch[2]}?embed=true`;
+  }
+  return null;
+};
+
+// ── Helper: detect if an embed URL is for audio (for height sizing) ───────────
+const isAudioEmbedUrl = (url: string): boolean => {
+  return /soundcloud\.com|spotify\.com|apple\.com\/music|podcasts\.apple\.com|deezer\.com\/track|tidal\.com\/browse\/track/.test(url);
+};
+
+// ── Helper: detect if an embed URL is for a "tall" code/design tool ───────────
+const isTallEmbedUrl = (url: string): boolean => {
+  return /codepen\.io|codesandbox\.io|stackblitz\.com|replit\.com|glitch\.com|figma\.com|miro\.com|mural\.co/.test(url);
+};
+
+// ─── Sleek PDF redirect card builder ─────────────────────────────────────────
+// Used in place of iframes for all PDF exports (direct PDF + Save-to-PDF from HTML).
+
+const pdfRedirectCard = (url: string, icon: string, label: string, sublabel = "", accentColor = "#4f8ef7"): string => {
+  const truncUrl = url.length > 80 ? url.slice(0, 77) + "…" : url;
+  return `<a class="pdf-redirect-card" href="${esc(url)}" target="_blank" rel="noopener" style="--prc-accent:${accentColor}">
+  <div class="prc-icon-wrap">${icon}</div>
+  <div class="prc-body">
+    ${label ? `<div class="prc-label">${esc(label)}</div>` : ""}
+    ${sublabel ? `<div class="prc-sublabel">${esc(sublabel)}</div>` : ""}
+    <div class="prc-url">${esc(truncUrl)}</div>
+  </div>
+  <div class="prc-arrow-wrap">
+    <svg viewBox="0 0 16 16" fill="none" width="14" height="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 8h10M9 4l4 4-4 4"/>
+    </svg>
+  </div>
+</a>`;
+};
+
+// ── HTML iframe block builder (for video, audio, file, embed in HTML export) ──
+// Also embeds a .print-only redirect card so "Save as PDF" from the HTML file
+// shows a sleek card instead of a blank iframe area.
+const iframeBlock = (iframeSrc: string, label: string, origUrl: string, height = "360px", accentColor = "#4f8ef7"): string => {
+  const truncUrl = origUrl.length > 80 ? origUrl.slice(0, 77) + "…" : origUrl;
+  return `<div class="embed-block">
+  <div class="embed-bar">${serviceBadge(label)}<a href="${esc(origUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a></div>
+  <div class="embed-frame-wrap screen-only" style="height:${height}">
+    <iframe src="${esc(iframeSrc)}" frameborder="0" allowfullscreen loading="lazy" title="${esc(label)}"
+      allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture;fullscreen"></iframe>
+  </div>
+  <a class="pdf-redirect-card print-only" href="${esc(origUrl)}" target="_blank" rel="noopener" style="--prc-accent:${accentColor};margin:0;border-top:none;border-radius:0 0 var(--r14) var(--r14)">
+    <div class="prc-icon-wrap">🔗</div>
+    <div class="prc-body">
+      <div class="prc-label">${esc(label)}</div>
+      <div class="prc-url">${esc(truncUrl)}</div>
+    </div>
+    <div class="prc-arrow-wrap">
+      <svg viewBox="0 0 16 16" fill="none" width="14" height="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 8h10M9 4l4 4-4 4"/>
+      </svg>
+    </div>
+  </a>
+</div>`;
+};
+
+// ─── Embed resolver (for dedicated embed blocks) ────────────────────────────────
 type EmbedResult = { type: "iframe"|"vid-card"|"link"; src: string; label: string; tall?: boolean; thumbUrl?: string; watchUrl?: string };
 const resolveEmbed = (url = ""): EmbedResult => {
   // First try file resolver for code/doc embeds
@@ -756,33 +926,48 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
     // ── Video — local: base64 native player (HTML) or sleek card (PDF) ──────────
     case "video": {
       if (!block.videoUrl) return "";
-      if (isLocal(block.videoUrl)) {
-        const fname = block.videoUrl.split("/").pop() || "video";
+      const videoUrl = block.videoUrl;
+
+      // ── Local file ────────────────────────────────────────────────────────────
+      if (isLocal(videoUrl)) {
+        const fname = videoUrl.split("/").pop() || "video";
         if (_forPdf) {
-          // PDF/print: iframes & <video> don't render — show a polished info card
           return `<div class="media-local-card">
   <div class="mlc-icon">🎬</div>
   <div class="mlc-body">
     <div class="mlc-label">Local Video <span class="local-badge">local</span></div>
     <div class="mlc-name">${esc(fname)}</div>
-    <div class="mlc-hint">Video stored on your device — not available in PDF export.</div>
+    <div class="mlc-hint">Video stored on your device — not available in this export.</div>
   </div>
 </div>`;
         }
-        // HTML export: emit native <video> — mediaMap will inline src as base64
+        // HTML: native player with base64-inlined src
         return `<div class="embed-block">
   <div class="embed-bar"><span class="svc-badge svc-badge-default">🎬 Video</span><span class="embed-filename">${esc(fname)}</span></div>
-  <video controls class="native-video" preload="metadata" style="display:block;width:100%"><source src="${esc(block.videoUrl)}"><p class="media-fallback">Your browser cannot play this video.</p></video>
+  <video controls class="native-video" preload="metadata" style="display:block;width:100%"><source src="${esc(videoUrl)}"><p class="media-fallback">Your browser cannot play this video.</p></video>
 </div>`;
       }
-      const vr = resolveVideo(block.videoUrl);
 
-      // YouTube — thumbnail card with play button overlay, opens on click
-      if (vr.type === "yt-card") {
+      // ── External URL — PDF: always show redirect card ─────────────────────────
+      if (_forPdf) {
+        const vr = resolveVideo(videoUrl);
+        const label = vr.label || urlHost(videoUrl) || "Video";
+        return pdfRedirectCard(videoUrl, "🎬", label, "Click to watch video", "#1a1a2e");
+      }
+
+      // ── HTML export: YouTube & YouTube Music — thumbnail card (iframe blocked on blob: origin) ──
+      const isYouTube = /(?:youtube\.com|youtu\.be|music\.youtube\.com)/.test(videoUrl);
+      if (isYouTube) {
+        const vr = resolveVideo(videoUrl);
+        // YouTube Music falls through resolveVideo as a generic-card; grab ID directly
+        const ytId = videoUrl.match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/|music\.youtube\.com\/watch\?v=)([A-Za-z0-9_-]{11})/)?.[1];
+        const thumbUrl = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : (vr.thumbUrl || "");
+        const watchUrl = vr.watchUrl || videoUrl;
+        const label = /music\.youtube\.com/.test(videoUrl) ? "YouTube Music" : "YouTube";
         return `<div class="embed-block">
-  <div class="embed-bar">${serviceBadge("YouTube")}<a href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on YouTube ↗</a></div>
-  <a class="vid-thumb-card" href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" title="Watch on YouTube">
-    <img class="vid-thumb-img" src="${esc(vr.thumbUrl||"")}" alt="YouTube video thumbnail" loading="lazy" onerror="this.style.display='none'">
+  <div class="embed-bar">${serviceBadge("YouTube")}<a href="${esc(watchUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on ${esc(label)} ↗</a></div>
+  <a class="vid-thumb-card" href="${esc(watchUrl)}" target="_blank" rel="noopener" title="Watch on ${esc(label)}">
+    ${thumbUrl ? `<img class="vid-thumb-img" src="${esc(thumbUrl)}" alt="${esc(label)} video thumbnail" loading="lazy" onerror="this.style.display='none'">` : `<div class="vid-thumb-placeholder"></div>`}
     <div class="vid-thumb-overlay">
       <div class="vid-play-btn"><svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div>
     </div>
@@ -790,52 +975,35 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
 </div>`;
       }
 
-      // Vimeo — thumbnail card
-      if (vr.type === "vimeo-card") {
+      // ── HTML export: try getVideoEmbedUrl for other services (Vimeo, Loom, etc.) ──
+      const embedSrc = getVideoEmbedUrl(videoUrl);
+      if (embedSrc) {
+        const vr = resolveVideo(videoUrl);
+        const label = vr.label || urlHost(videoUrl) || "Video";
+        const accent = label === "Vimeo" ? "#1ab7ea" : label === "Loom" ? "#625df5" : "#1a1a2e";
+        return iframeBlock(embedSrc, label, videoUrl, "360px", accent);
+      }
+
+      // Direct video file (mp4, webm, etc.)
+      if (/\.(mp4|webm|ogg|ogv|mov)(\?|$)/i.test(videoUrl)) {
         return `<div class="embed-block">
-  <div class="embed-bar">${serviceBadge("Vimeo")}<a href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on Vimeo ↗</a></div>
-  <a class="vid-thumb-card" href="${esc(vr.watchUrl)}" target="_blank" rel="noopener" title="Watch on Vimeo">
-    <img class="vid-thumb-img" src="${esc(vr.thumbUrl||"")}" alt="Vimeo video thumbnail" loading="lazy" onerror="this.style.display='none'">
-    <div class="vid-thumb-overlay">
-      <div class="vid-play-btn" style="background:#1ab7ea"><svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div>
+  <div class="embed-bar"><span class="svc-badge svc-badge-default">🎬 Video</span><a href="${esc(videoUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a></div>
+  <video controls class="native-video screen-only" preload="metadata" style="display:block;width:100%"><source src="${esc(videoUrl)}"><p class="media-fallback">Your browser cannot play this video. <a href="${esc(videoUrl)}" download>Download</a></p></video>
+  <a class="pdf-redirect-card print-only" href="${esc(videoUrl)}" target="_blank" rel="noopener" style="--prc-accent:#1a1a2e;margin:0;border-top:none;border-radius:0 0 var(--r14) var(--r14)">
+    <div class="prc-icon-wrap">🎬</div>
+    <div class="prc-body">
+      <div class="prc-label">Video</div>
+      <div class="prc-url">${esc(videoUrl.length > 80 ? videoUrl.slice(0, 77) + "…" : videoUrl)}</div>
     </div>
+    <div class="prc-arrow-wrap"><svg viewBox="0 0 16 16" fill="none" width="14" height="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></div>
   </a>
 </div>`;
       }
 
-      // Loom / Wistia / generic card services — link card with brand badge
-      if (vr.type === "loom-card" || vr.type === "wistia-card" || vr.type === "generic-card") {
-        return `<a class="vid-link-card" href="${esc(vr.watchUrl)}" target="_blank" rel="noopener">
-  <div class="vlc-icon-wrap"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg></div>
-  <div class="media-info">
-    <span class="media-label">${esc(vr.label)}</span>
-    <span class="media-url">${esc(vr.watchUrl)}</span>
-  </div>
-  ${serviceBadge(vr.label)}
-  <span class="mlc-arrow">↗</span>
-</a>`;
-      }
-
-      // Native video file (external URL)
-      if (vr.type === "native-video") {
-        if (_forPdf) {
-          // PDF: can't play video, show a link card
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.videoUrl)}" target="_blank" rel="noopener">
-  <span class="media-icon">🎬</span>
-  <div class="media-info"><span class="media-label">Video</span><span class="media-url">${esc(block.videoUrl)}</span></div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
-        return `<div class="embed-block">
-  <div class="embed-bar"><span class="svc-badge svc-badge-default">Video</span><a href="${esc(block.videoUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a></div>
-  <video controls class="native-video" preload="metadata" style="display:block;width:100%"><source src="${esc(block.videoUrl)}"><p class="media-fallback">Your browser cannot play this video. <a href="${esc(block.videoUrl)}" download>Download</a></p></video>
-</div>`;
-      }
-
       // Generic link fallback
-      return `<a class="media-link-card" href="${esc(block.videoUrl)}" target="_blank" rel="noopener">
+      return `<a class="media-link-card" href="${esc(videoUrl)}" target="_blank" rel="noopener">
   <span class="media-icon">🎬</span>
-  <div class="media-info"><span class="media-label">Video</span><span class="media-url">${esc(block.videoUrl)}</span></div>
+  <div class="media-info"><span class="media-label">Video</span><span class="media-url">${esc(videoUrl)}</span></div>
   <span class="mlc-arrow">↗</span>
 </a>`;
     }
@@ -843,23 +1011,22 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
     // ── Audio — local: base64 native player (HTML) or sleek card (PDF) ──────────
     case "audio": {
       if (!block.audioUrl) return "";
-      const fname = decodeURIComponent(block.audioUrl.split("?")[0].split("/").pop() || "Audio");
+      const audioUrl = block.audioUrl;
+      const fname = decodeURIComponent(audioUrl.split("?")[0].split("/").pop() || "Audio");
 
-      // Local file
-      if (isLocal(block.audioUrl)) {
+      // ── Local file ────────────────────────────────────────────────────────────
+      if (isLocal(audioUrl)) {
         if (_forPdf) {
-          // PDF/print: audio can't play — show polished info card
           return `<div class="media-local-card">
   <div class="mlc-icon">🎵</div>
   <div class="mlc-body">
     <div class="mlc-label">Local Audio <span class="local-badge">local</span></div>
     <div class="mlc-name">${esc(fname)}</div>
-    <div class="mlc-hint">Audio stored on your device — not available in PDF export.</div>
+    <div class="mlc-hint">Audio stored on your device — not available in this export.</div>
   </div>
 </div>`;
         }
-        // HTML export: emit native <audio> — mediaMap will inline src as base64
-        const ext = block.audioUrl.split("?")[0].split(".").pop()?.toLowerCase() || "";
+        const ext = audioUrl.split("?")[0].split(".").pop()?.toLowerCase() || "";
         const mimeMap: Record<string,string> = {
           mp3:"audio/mpeg", wav:"audio/wav", ogg:"audio/ogg", oga:"audio/ogg",
           aac:"audio/aac", flac:"audio/flac", opus:"audio/ogg;codecs=opus",
@@ -867,8 +1034,8 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
         };
         const mimeHint = mimeMap[ext];
         const srcTag = mimeHint
-          ? `<source src="${esc(block.audioUrl)}" type="${esc(mimeHint)}">`
-          : `<source src="${esc(block.audioUrl)}">`;
+          ? `<source src="${esc(audioUrl)}" type="${esc(mimeHint)}">`
+          : `<source src="${esc(audioUrl)}">`;
         return `<div class="audio-card">
   <div class="audio-card-icon">🎵</div>
   <div class="audio-inner">
@@ -881,100 +1048,76 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
 </div>`;
       }
 
-      const ar = resolveAudio(block.audioUrl);
+      // ── External URL — PDF: always show redirect card ─────────────────────────
+      if (_forPdf) {
+        const ar = resolveAudio(audioUrl);
+        const label = ar.label || urlHost(audioUrl) || "Audio";
+        return pdfRedirectCard(audioUrl, "🎵", label, "Click to listen", "#1db954");
+      }
 
-      // Spotify track / episode
-      if (ar.type === "spotify-track") {
-        if (_forPdf) {
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.audioUrl)}" target="_blank" rel="noopener">
-  ${serviceBadge("Spotify")}
-  <div class="media-info"><span class="media-label">Spotify Track</span><span class="media-url">${esc(block.audioUrl)}</span></div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
+      // ── HTML export: try getAudioEmbedUrl first ────────────────────────────────
+      const audioEmbedSrc = getAudioEmbedUrl(audioUrl);
+      if (audioEmbedSrc) {
+        const ar = resolveAudio(audioUrl);
+        const label = ar.label || urlHost(audioUrl) || "Audio";
+        const isSpotifyPlaylist = /open\.spotify\.com\/(playlist|album|show|artist)/.test(audioUrl);
+        const h = isSpotifyPlaylist ? "352" : /soundcloud/.test(audioUrl) ? "166" : "175";
+        const accent = label === "Spotify" ? "#1db954" : label === "SoundCloud" ? "#ff5500" : label === "Apple Music" ? "#fc3c44" : "#4f8ef7";
         return `<div class="embed-block embed-block-audio">
-  <div class="embed-bar">${serviceBadge("Spotify")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open in Spotify ↗</a></div>
-  <iframe src="${esc(ar.src)}" width="100%" height="152" frameborder="0" allowtransparency="true" allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture" loading="lazy" style="display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
+  <div class="embed-bar">${serviceBadge(label)}<a href="${esc(audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open in ${esc(label)} ↗</a></div>
+  <div class="screen-only" style="overflow:hidden;border-radius:0 0 var(--r14) var(--r14)">
+    <iframe src="${esc(audioEmbedSrc)}" width="100%" height="${h}" frameborder="0" allowtransparency="true"
+      allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture"
+      loading="lazy" style="display:block"></iframe>
+  </div>
+  <a class="pdf-redirect-card print-only" href="${esc(audioUrl)}" target="_blank" rel="noopener" style="--prc-accent:${accent};margin:0;border-top:none;border-radius:0 0 var(--r14) var(--r14)">
+    <div class="prc-icon-wrap">🎵</div>
+    <div class="prc-body">
+      <div class="prc-label">${esc(label)}</div>
+      <div class="prc-url">${esc(audioUrl.length > 80 ? audioUrl.slice(0, 77) + "…" : audioUrl)}</div>
+    </div>
+    <div class="prc-arrow-wrap">
+      <svg viewBox="0 0 16 16" fill="none" width="14" height="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+    </div>
+  </a>
 </div>`;
       }
 
-      // Spotify playlist / album / show
-      if (ar.type === "spotify-playlist") {
-        if (_forPdf) {
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.audioUrl)}" target="_blank" rel="noopener">
-  ${serviceBadge("Spotify")}
-  <div class="media-info"><span class="media-label">Spotify Playlist</span><span class="media-url">${esc(block.audioUrl)}</span></div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
-        return `<div class="embed-block embed-block-audio">
-  <div class="embed-bar">${serviceBadge("Spotify")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open in Spotify ↗</a></div>
-  <iframe src="${esc(ar.src)}" width="100%" height="352" frameborder="0" allowtransparency="true" allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture" loading="lazy" style="display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
-</div>`;
-      }
-
-      // SoundCloud — waveform visual player
-      if (ar.type === "soundcloud") {
-        if (_forPdf) {
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.audioUrl)}" target="_blank" rel="noopener">
-  ${serviceBadge("SoundCloud")}
-  <div class="media-info"><span class="media-label">SoundCloud</span><span class="media-url">${esc(block.audioUrl)}</span></div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
-        return `<div class="embed-block embed-block-audio">
-  <div class="embed-bar">${serviceBadge("SoundCloud")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open on SoundCloud ↗</a></div>
-  <iframe width="100%" height="166" scrolling="no" frameborder="no" allow="autoplay" src="${esc(ar.src)}" loading="lazy" style="display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
-</div>`;
-      }
-
-      // Apple Music / Podcasts
-      if (ar.type === "apple") {
-        if (_forPdf) {
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.audioUrl)}" target="_blank" rel="noopener">
-  ${serviceBadge("Apple Music")}
-  <div class="media-info"><span class="media-label">Apple Music</span><span class="media-url">${esc(block.audioUrl)}</span></div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
-        return `<div class="embed-block embed-block-audio">
-  <div class="embed-bar">${serviceBadge("Apple Music")}<a href="${esc(block.audioUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open in Apple Music ↗</a></div>
-  <iframe allow="autoplay *; encrypted-media *; fullscreen *" frameborder="0" height="175" sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation" src="${esc(ar.src)}" loading="lazy" style="width:100%;display:block;border-radius:0 0 var(--r14) var(--r14)"></iframe>
-</div>`;
-      }
-
-      // Native <audio> — direct files & unknown external URLs
-      if (ar.type === "native") {
-        if (_forPdf) {
-          // PDF: audio can't play, show a link card
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.audioUrl)}" target="_blank" rel="noopener">
-  <span class="media-icon">🎵</span>
-  <div class="media-info"><span class="media-label">Audio</span><span class="media-url">${esc(fname !== "Audio" ? fname : (ar.label || block.audioUrl))}</span></div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
-        const srcTag = ar.mimeHint
-          ? `<source src="${esc(block.audioUrl)}" type="${esc(ar.mimeHint)}">`
-          : `<source src="${esc(block.audioUrl)}">`;
-        const displayName = fname !== "Audio" ? fname : (ar.label || "Audio");
+      // Native audio file
+      const ar2 = resolveAudio(audioUrl);
+      if (ar2.type === "native") {
+        const srcTag2 = ar2.mimeHint
+          ? `<source src="${esc(audioUrl)}" type="${esc(ar2.mimeHint)}">`
+          : `<source src="${esc(audioUrl)}">`;
+        const displayName = fname !== "Audio" ? fname : (ar2.label || "Audio");
         return `<div class="audio-card">
   <div class="audio-card-icon">🎵</div>
-  <div class="audio-inner">
+  <div class="audio-inner screen-only">
     <span class="audio-name">${esc(displayName)}</span>
     <audio controls preload="metadata" class="audio-player">
-      ${srcTag}
-      <p class="media-fallback">Can't play this audio. <a href="${esc(block.audioUrl)}" target="_blank" rel="noopener">Open ↗</a></p>
+      ${srcTag2}
+      <p class="media-fallback">Can't play this audio. <a href="${esc(audioUrl)}" target="_blank" rel="noopener">Open ↗</a></p>
     </audio>
   </div>
+  <a class="pdf-redirect-card print-only" href="${esc(audioUrl)}" target="_blank" rel="noopener" style="--prc-accent:#1db954;margin:0;border:none;background:none;padding:0;flex:1;min-width:0">
+    <div class="prc-body" style="flex:1;min-width:0">
+      <div class="prc-label">Audio</div>
+      <div class="prc-sublabel">${esc(displayName)}</div>
+      <div class="prc-url">${esc(audioUrl.length > 80 ? audioUrl.slice(0, 77) + "…" : audioUrl)}</div>
+    </div>
+    <div class="prc-arrow-wrap" style="margin-left:auto">
+      <svg viewBox="0 0 16 16" fill="none" width="14" height="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+    </div>
+  </a>
 </div>`;
       }
 
       // Known-incompatible streaming service — link card
-      return `<a class="media-link-card" href="${esc(block.audioUrl)}" target="_blank" rel="noopener">
+      return `<a class="media-link-card" href="${esc(audioUrl)}" target="_blank" rel="noopener">
   <span class="media-icon">🎵</span>
   <div class="media-info">
-    <span class="media-label">Audio — ${esc(ar.label||urlHost(block.audioUrl)||"")}</span>
-    <span class="media-url">${esc(block.audioUrl)}</span>
+    <span class="media-label">Audio — ${esc(ar2.label||urlHost(audioUrl)||"")}</span>
+    <span class="media-url">${esc(audioUrl)}</span>
   </div>
   <span class="mlc-arrow">↗</span>
 </a>`;
@@ -983,11 +1126,12 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
     // ── File — local: base64 download link (HTML) or sleek card (PDF) ───────────
     case "file": {
       if (!block.fileUrl) return "";
-      const name = block.fileName || block.fileUrl.split("/").pop() || "File";
-      const icon = fileIcon(block.fileName || "", block.fileUrl);
-      const fr = resolveFile(block.fileUrl, name);
+      const fileUrl = block.fileUrl;
+      const name = block.fileName || fileUrl.split("/").pop() || "File";
+      const icon = fileIcon(block.fileName || "", fileUrl);
+      const fr = resolveFile(fileUrl, name);
 
-      // Local file
+      // ── Local file ────────────────────────────────────────────────────────────
       if (fr.type === "local") {
         if (_forPdf) {
           return `<div class="media-local-card">
@@ -995,47 +1139,60 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
   <div class="mlc-body">
     <div class="mlc-label">Local File <span class="local-badge">local</span></div>
     <div class="mlc-name">${esc(name)}</div>
-    <div class="mlc-hint">File stored on your device — not available in PDF export.</div>
+    <div class="mlc-hint">File stored on your device — not available in this export.</div>
   </div>
 </div>`;
         }
-        // HTML export: emit a download link — mediaMap will inline href as base64 data URI
         return `<div class="file-card">
   <div class="file-icon-lg">${icon}</div>
   <div class="file-info">
     <span class="file-name">${esc(name)}</span>
-    <a href="${esc(block.fileUrl)}" download="${esc(name)}" class="file-link">Download file ↓</a>
+    <a href="${esc(fileUrl)}" download="${esc(name)}" class="file-link">Download file ↓</a>
     <span class="file-note">Local file — embedded in this HTML export.</span>
   </div>
 </div>`;
       }
 
-      // Embeddable (PDF, GDoc, GSheet, GSlide, Office, CodePen, Figma, etc.)
-      if (fr.iframeSrc) {
-        if (_forPdf) {
-          // PDF: iframes won't render — show a polished link card
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.fileUrl)}" target="_blank" rel="noopener">
-  <div class="file-icon-lg" style="font-size:1.1em;width:40px;height:40px">${icon}</div>
-  <div class="media-info">
-    ${serviceBadge(fr.label)}
-    <span class="media-label" style="margin-top:4px">${esc(name)}</span>
-    <span class="media-url">${esc(block.fileUrl)}</span>
-  </div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
+      // ── External URL — PDF: always show redirect card ─────────────────────────
+      if (_forPdf) {
+        return pdfRedirectCard(fileUrl, icon, fr.label, name !== fr.label ? name : "", "#4f8ef7");
+      }
+
+      // ── HTML export: try getEmbedUrl for embeddable files ─────────────────────
+      const embedSrc = getEmbedUrl(fileUrl) || fr.iframeSrc;
+      if (embedSrc) {
         const isCode  = ["codepen","codesandbox","stackblitz","jsfiddle","replit"].includes(fr.type);
         const isDesign = fr.type === "figma";
         const iframeH = isCode ? "460px" : isDesign ? "500px" : fr.type === "gslide" ? "480px" : "520px";
+        const accentMap: Record<string, string> = {
+          "Google Doc":"#4285f4","Google Sheet":"#0f9d58","Google Slides":"#f4b400",
+          "Google Drive":"#4285f4","Office / OneDrive":"#0078d4","PDF":"#ef4444",
+          "CodePen":"#1e1f26","CodeSandbox":"#040404","StackBlitz":"#1374ef",
+          "JSFiddle":"#0084ff","Replit":"#f26207","Figma":"#f24e1e",
+          "Airtable":"#2d7ff9","Notion":"#000",
+        };
+        const accent = accentMap[fr.label] || "#6366f1";
         return `<div class="embed-block">
   <div class="embed-bar">
     ${serviceBadge(fr.label)}
     <span class="embed-filename">${esc(name)}</span>
-    <a href="${esc(block.fileUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a>
+    <a href="${esc(fileUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a>
   </div>
-  <div class="embed-frame-wrap" style="height:${iframeH}">
-    <iframe src="${esc(fr.iframeSrc)}" frameborder="0" allowfullscreen loading="lazy" title="${esc(fr.label)}" allow="fullscreen"></iframe>
+  <div class="embed-frame-wrap screen-only" style="height:${iframeH}">
+    <iframe src="${esc(embedSrc)}" frameborder="0" allowfullscreen loading="lazy" title="${esc(fr.label)}"
+      allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture;fullscreen"></iframe>
   </div>
+  <a class="pdf-redirect-card print-only" href="${esc(fileUrl)}" target="_blank" rel="noopener" style="--prc-accent:${accent};margin:0;border-top:none;border-radius:0 0 var(--r14) var(--r14)">
+    <div class="prc-icon-wrap">${icon}</div>
+    <div class="prc-body">
+      <div class="prc-label">${esc(fr.label)}</div>
+      <div class="prc-sublabel">${esc(name !== fr.label ? name : "")}</div>
+      <div class="prc-url">${esc(fileUrl.length > 80 ? fileUrl.slice(0, 77) + "…" : fileUrl)}</div>
+    </div>
+    <div class="prc-arrow-wrap">
+      <svg viewBox="0 0 16 16" fill="none" width="14" height="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+    </div>
+  </a>
 </div>`;
       }
 
@@ -1044,7 +1201,7 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
   <div class="file-icon-lg">${icon}</div>
   <div class="file-info">
     <span class="file-name">${esc(name)}</span>
-    <a href="${esc(block.fileUrl)}" target="_blank" rel="noopener" class="file-link" download>Download ↗</a>
+    <a href="${esc(fileUrl)}" target="_blank" rel="noopener" class="file-link" download>Download ↗</a>
   </div>
 </div>`;
     }
@@ -1054,60 +1211,119 @@ const blockToHtml = (block: NoteBlock, depth = 0, prevType?: string, counter = {
       if (!block.bookmarkUrl) return "";
       return `<a class="bookmark-card" href="${esc(block.bookmarkUrl)}" target="_blank" rel="noopener"><div class="bm-body"><div class="bm-title">${renderInline(block.bookmarkTitle||block.bookmarkUrl)}</div>${block.bookmarkDescription?`<div class="bm-desc">${renderInline(block.bookmarkDescription)}</div>`:""}<div class="bm-url">${esc(block.bookmarkUrl)}</div></div><span class="bm-arrow">↗</span></a>`;
 
-    // ── Embed — CodePen / CodeSandbox / StackBlitz / Figma / GDoc / YT card / etc
+    // ── Embed — CodePen / CodeSandbox / StackBlitz / Figma / GDoc / YT / etc ────
     case "embed": {
       if (!block.embedUrl) return "";
+      const embedUrl = block.embedUrl;
 
-      // Local URL in an embed block — treat like a local file
-      if (isLocal(block.embedUrl)) {
+      // ── Local URL ─────────────────────────────────────────────────────────────
+      if (isLocal(embedUrl)) {
         if (_forPdf) {
           return `<div class="media-local-card">
   <div class="mlc-icon">🔗</div>
   <div class="mlc-body">
     <div class="mlc-label">Local Embed <span class="local-badge">local</span></div>
-    <div class="mlc-name">${esc(block.embedUrl.split("/").pop() || block.embedUrl)}</div>
-    <div class="mlc-hint">Local resource — not available in PDF export.</div>
+    <div class="mlc-name">${esc(embedUrl.split("/").pop() || embedUrl)}</div>
+    <div class="mlc-hint">Local resource — not available in this export.</div>
   </div>
 </div>`;
         }
-        return `<a class="media-link-card" href="${esc(block.embedUrl)}" target="_blank" rel="noopener">
+        return `<a class="media-link-card" href="${esc(embedUrl)}" target="_blank" rel="noopener">
   <span class="media-icon">🔗</span>
-  <div class="media-info"><span class="media-label">Embed</span><span class="media-url">${esc(block.embedUrl)}</span></div>
+  <div class="media-info"><span class="media-label">Embed</span><span class="media-url">${esc(embedUrl)}</span></div>
   <span class="mlc-arrow">↗</span>
 </a>`;
       }
 
-      const er = resolveEmbed(block.embedUrl);
-      if (er.type === "vid-card") {
-        // YouTube/Vimeo thumbnail card — works in HTML & PDF (no iframe needed)
+      // ── External URL — PDF: always show redirect card ─────────────────────────
+      if (_forPdf) {
+        const er = resolveEmbed(embedUrl);
+        const label = er.label || urlHost(embedUrl) || "Embed";
+        const isVideo = er.type === "vid-card";
+        return pdfRedirectCard(embedUrl, isVideo ? "🎬" : "🔗", label, "Click to open embedded content", "#6366f1");
+      }
+
+      // ── HTML export: use getEmbedUrl (authoritative) ──────────────────────────
+
+      // YouTube & YouTube Music — thumbnail card (iframes blocked on blob: / file: origin)
+      const isYouTubeEmbed = /(?:youtube\.com|youtu\.be|music\.youtube\.com)/.test(embedUrl);
+      if (isYouTubeEmbed) {
+        const vr = resolveVideo(embedUrl);
+        const ytId = embedUrl.match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/|music\.youtube\.com\/watch\?v=)([A-Za-z0-9_-]{11})/)?.[1];
+        const thumbUrl = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : (vr.thumbUrl || "");
+        const watchUrl = vr.watchUrl || embedUrl;
+        const label = /music\.youtube\.com/.test(embedUrl) ? "YouTube Music" : "YouTube";
         return `<div class="embed-block">
-  <div class="embed-bar">${serviceBadge(er.label)}<a href="${esc(er.watchUrl||block.embedUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on ${esc(er.label)} ↗</a></div>
-  <a class="vid-thumb-card" href="${esc(er.watchUrl||block.embedUrl)}" target="_blank" rel="noopener">
+  <div class="embed-bar">${serviceBadge("YouTube")}<a href="${esc(watchUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on ${esc(label)} ↗</a></div>
+  <a class="vid-thumb-card" href="${esc(watchUrl)}" target="_blank" rel="noopener" title="Watch on ${esc(label)}">
+    ${thumbUrl ? `<img class="vid-thumb-img" src="${esc(thumbUrl)}" alt="${esc(label)} video thumbnail" loading="lazy" onerror="this.style.display='none'">` : `<div class="vid-thumb-placeholder"></div>`}
+    <div class="vid-thumb-overlay">
+      <div class="vid-play-btn"><svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div>
+    </div>
+  </a>
+</div>`;
+      }
+
+      const embedSrc = getEmbedUrl(embedUrl);
+      if (embedSrc) {
+        const er = resolveEmbed(embedUrl);
+        const label = er.label || urlHost(embedUrl) || "Embed";
+        const isAudio = isAudioEmbedUrl(embedUrl);
+        const isTall = isTallEmbedUrl(embedUrl);
+        const isSpotifyPlaylist = /open\.spotify\.com\/(playlist|album|show|artist)/.test(embedUrl);
+        const isSpotifyTrack = /open\.spotify\.com\/(track|episode)/.test(embedUrl);
+        const isSoundCloud = /soundcloud\.com/.test(embedUrl);
+        const h = isSpotifyPlaylist ? "352px" : isSpotifyTrack ? "152px" : isSoundCloud ? "166px" : isAudio ? "175px" : isTall ? "480px" : "360px";
+        // Pick accent color by service
+        const accentMap: Record<string, string> = {
+          "YouTube":"#ff0000","Vimeo":"#1ab7ea","Loom":"#625df5",
+          "Spotify":"#1db954","SoundCloud":"#ff5500","Apple Music":"#fc3c44",
+          "CodePen":"#1e1f26","CodeSandbox":"#040404","StackBlitz":"#1374ef",
+          "JSFiddle":"#0084ff","Replit":"#f26207","Figma":"#f24e1e",
+          "Google Doc":"#4285f4","Google Sheet":"#0f9d58","Google Slides":"#f4b400",
+        };
+        const accent = accentMap[label] || "#6366f1";
+        const extraClass = isAudio ? " embed-block-audio" : "";
+        if (isAudio) {
+          // Audio services: use custom layout to match embed-block-audio style
+          return `<div class="embed-block${extraClass}">
+  <div class="embed-bar">${serviceBadge(label)}<a href="${esc(embedUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a></div>
+  <div class="screen-only" style="overflow:hidden;border-radius:0 0 var(--r14) var(--r14)">
+    <iframe src="${esc(embedSrc)}" width="100%" height="${h.replace("px","")}" frameborder="0" allowtransparency="true"
+      allow="autoplay;clipboard-write;encrypted-media;fullscreen;picture-in-picture"
+      loading="lazy" style="display:block"></iframe>
+  </div>
+  <a class="pdf-redirect-card print-only" href="${esc(embedUrl)}" target="_blank" rel="noopener" style="--prc-accent:${accent};margin:0;border-top:none;border-radius:0 0 var(--r14) var(--r14)">
+    <div class="prc-icon-wrap">🎵</div>
+    <div class="prc-body">
+      <div class="prc-label">${esc(label)}</div>
+      <div class="prc-url">${esc(embedUrl.length > 80 ? embedUrl.slice(0, 77) + "…" : embedUrl)}</div>
+    </div>
+    <div class="prc-arrow-wrap">
+      <svg viewBox="0 0 16 16" fill="none" width="14" height="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+    </div>
+  </a>
+</div>`;
+        }
+        return iframeBlock(embedSrc, label, embedUrl, h, accent);
+      }
+
+      // getEmbedUrl returned null — fall back to resolveEmbed for vid-card / link types
+      const er = resolveEmbed(embedUrl);
+      if (er.type === "vid-card") {
+        // YouTube/Vimeo thumbnail card (works without iframe)
+        return `<div class="embed-block">
+  <div class="embed-bar">${serviceBadge(er.label)}<a href="${esc(er.watchUrl||embedUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Watch on ${esc(er.label)} ↗</a></div>
+  <a class="vid-thumb-card" href="${esc(er.watchUrl||embedUrl)}" target="_blank" rel="noopener">
     ${er.thumbUrl?`<img class="vid-thumb-img" src="${esc(er.thumbUrl)}" alt="Video thumbnail" loading="lazy" onerror="this.style.display='none'">`:`<div class="vid-thumb-placeholder"></div>`}
     <div class="vid-thumb-overlay"><div class="vid-play-btn"><svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div></div>
   </a>
 </div>`;
       }
-      if (er.type === "iframe") {
-        if (_forPdf) {
-          // PDF: iframes don't render — show a polished link card
-          return `<a class="media-link-card pdf-ext-card" href="${esc(block.embedUrl)}" target="_blank" rel="noopener">
-  ${serviceBadge(er.label)}
-  <div class="media-info"><span class="media-label">Embedded content</span><span class="media-url">${esc(block.embedUrl)}</span></div>
-  <span class="mlc-arrow pdf-ext-arrow">↗</span>
-</a>`;
-        }
-        const h = er.tall ? "480px" : "360px";
-        return `<div class="embed-block">
-  <div class="embed-bar">${serviceBadge(er.label)}<a href="${esc(block.embedUrl)}" target="_blank" rel="noopener" class="embed-ext-link">Open ↗</a></div>
-  <div class="embed-frame-wrap" style="height:${h}">
-    <iframe src="${esc(er.src)}" frameborder="0" allowfullscreen loading="lazy" title="${esc(er.label)}" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture;fullscreen"></iframe>
-  </div>
-</div>`;
-      }
-      return `<a class="media-link-card" href="${esc(block.embedUrl)}" target="_blank" rel="noopener">
+
+      return `<a class="media-link-card" href="${esc(embedUrl)}" target="_blank" rel="noopener">
   <span class="media-icon">🔗</span>
-  <div class="media-info"><span class="media-label">Embed</span><span class="media-url">${esc(block.embedUrl)}</span></div>
+  <div class="media-info"><span class="media-label">Embed</span><span class="media-url">${esc(embedUrl)}</span></div>
   <span class="mlc-arrow">↗</span>
 </a>`;
     }
@@ -2278,6 +2494,40 @@ code{font-family:var(--font-mono)}
   display:flex;align-items:center;justify-content:center;
 }
 
+/* ── PDF redirect card — primary card for PDF exports ── */
+.pdf-redirect-card{
+  display:flex;align-items:center;gap:14px;padding:14px 18px;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--prc-accent,#4f8ef7) 7%,#fff),#fff);
+  border:1px solid color-mix(in srgb,var(--prc-accent,#4f8ef7) 22%,#e8e0d8);
+  border-left:3px solid var(--prc-accent,#4f8ef7);
+  border-radius:var(--r14);margin:.7em 0;
+  text-decoration:none;color:inherit;
+  transition:box-shadow .15s,transform .15s;
+}
+.pdf-redirect-card:hover{
+  box-shadow:0 4px 16px rgba(0,0,0,.09);
+  transform:translateY(-1px);
+  text-decoration:none;
+}
+.prc-icon-wrap{
+  font-size:1.3em;flex-shrink:0;
+  width:44px;height:44px;border-radius:var(--r10);
+  background:color-mix(in srgb,var(--prc-accent,#4f8ef7) 12%,#fff);
+  border:1px solid color-mix(in srgb,var(--prc-accent,#4f8ef7) 20%,#e8e0d8);
+  display:flex;align-items:center;justify-content:center;
+}
+.prc-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.prc-label{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--prc-accent,#4f8ef7);opacity:.9}
+.prc-sublabel{font-size:.84rem;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prc-url{font-size:.75rem;color:var(--ink4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono)}
+.prc-arrow-wrap{
+  flex-shrink:0;width:30px;height:30px;border-radius:50%;
+  background:color-mix(in srgb,var(--prc-accent,#4f8ef7) 12%,#fff);
+  border:1px solid color-mix(in srgb,var(--prc-accent,#4f8ef7) 22%,#e8e0d8);
+  color:var(--prc-accent,#4f8ef7);
+  display:flex;align-items:center;justify-content:center;
+}
+
 /* ── Audio card (native file player) ── */
 .audio-inner{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
 .audio-name{font-size:.84rem;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2552,11 +2802,25 @@ tbody tr:hover td{background:var(--sage-l)}
   .page{max-width:100%;padding:0 0 20px}
   .doc-header{padding:20px 0 28px;margin-bottom:28px}
   .doc-header::before{display:none}
-  /* Embed iframes — show as link cards in print */
+  /* ── Iframes: hide in print; the .embed-frame-wrap is hidden, embed-bar link stays ── */
   .embed-block{break-inside:avoid}
   .embed-ratio-16-9,.embed-frame-wrap{display:none!important}
-  .embed-bar .embed-ext-link::after{content:" (open link to view)";font-style:italic;font-weight:400}
-  /* Video thumbnail — keep the image, hide overlay details */
+  /* Show a print-friendly note after the service badge link */
+  .embed-bar .embed-ext-link::after{content:" — click to view";font-style:italic;font-weight:400;opacity:.7}
+  /* ── video/audio/file native elements don't print — rely on redirect cards or link ── */
+  video{display:none!important}
+  audio,.audio-player{display:none!important}
+  /* ── PDF redirect cards: ensure they're fully visible ── */
+  .pdf-redirect-card{
+    background:linear-gradient(135deg,#f0f5ff,#fff)!important;
+    border-left:3px solid #4f8ef7!important;
+    break-inside:avoid;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+  }
+  .prc-icon-wrap,.prc-arrow-wrap{
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+  }
+  /* ── Video thumbnail — keep the image ── */
   .vid-thumb-card{aspect-ratio:16/9;max-height:220px}
   .vid-thumb-overlay{display:none}
   .table-outer{overflow:visible;border:1px solid var(--border2);border-radius:4px}
